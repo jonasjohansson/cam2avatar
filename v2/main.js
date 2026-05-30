@@ -5,8 +5,12 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { FilesetResolver, PoseLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
 import * as ort from 'onnxruntime-web/webgpu';
+
+const Kalidokit = window.Kalidokit;
 
 const TV = '0.10.35';
 const POSE_MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task';
@@ -33,11 +37,47 @@ renderer.setSize(innerWidth, innerHeight);
 view.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xdfe3ea);
-const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.01, 100);
-camera.position.set(0, 0, 3);
+const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.01, 100);
+camera.position.set(0.7, 0.9, 3.8);
 const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0.7, 0.9, 0);
 scene.add(new THREE.GridHelper(4, 8, 0xaab0bd, 0xc7ccd6));
-scene.add(new THREE.AxesHelper(0.3));
+scene.add(new THREE.HemisphereLight(0xffffff, 0x667, 1.4));
+const dir = new THREE.DirectionalLight(0xffffff, 1.4); dir.position.set(1, 2, 1.5); scene.add(dir);
+
+// --- VRM avatar (driven by MediaPipe via Kalidokit, like v1) ----------------
+let vrm = null;
+async function loadVRM() {
+	const loader = new GLTFLoader();
+	loader.register((parser) => new VRMLoaderPlugin(parser));
+	const gltf = await loader.loadAsync('https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/stable/AvatarSample_C.vrm');
+	vrm = gltf.userData.vrm;
+	VRMUtils.removeUnnecessaryVertices(gltf.scene);
+	VRMUtils.combineSkeletons(gltf.scene);
+	VRMUtils.rotateVRM0(vrm);
+	vrm.scene.traverse((o) => { o.frustumCulled = false; });
+	vrm.scene.position.x = 0.1; // avatar (clear of the panel), MHP skeleton to its right
+	scene.add(vrm.scene);
+}
+
+const _e = new THREE.Euler(), _q = new THREE.Quaternion();
+function rigRot(name, rot, damp = 1) {
+	const node = vrm?.humanoid?.getNormalizedBoneNode(name);
+	if (!node || !rot) return;
+	_e.set((rot.x ?? 0) * damp, (rot.y ?? 0) * damp, (rot.z ?? 0) * damp, rot.rotationOrder || 'XYZ');
+	node.quaternion.slerp(_q.setFromEuler(_e), 0.4);
+}
+function driveVRM(world, lm) {
+	if (!vrm || !Kalidokit) return;
+	const rp = Kalidokit.Pose.solve(world, lm, { runtime: 'mediapipe', video });
+	if (!rp) return;
+	rigRot('hips', rp.Hips.rotation, 0.7);
+	rigRot('spine', rp.Spine, 0.45); rigRot('chest', rp.Spine, 0.3);
+	rigRot('rightUpperArm', rp.RightUpperArm); rigRot('rightLowerArm', rp.RightLowerArm);
+	rigRot('leftUpperArm', rp.LeftUpperArm); rigRot('leftLowerArm', rp.LeftLowerArm);
+	rigRot('leftUpperLeg', rp.LeftUpperLeg); rigRot('leftLowerLeg', rp.LeftLowerLeg);
+	rigRot('rightUpperLeg', rp.RightUpperLeg); rigRot('rightLowerLeg', rp.RightLowerLeg);
+}
 
 function makeSkeleton(color, n, conns) {
 	const pts = new THREE.BufferGeometry();
@@ -51,8 +91,11 @@ function makeSkeleton(color, n, conns) {
 	return { points, segs, conns, visible: (v) => { points.visible = segs.visible = v; } };
 }
 const mpSkel = makeSkeleton(0x2b5fd9, 33, PoseLandmarker.POSE_CONNECTIONS.map((c) => [c.start, c.end]));
+mpSkel.visible(false); // hidden — the VRM (left) IS the MediaPipe result
 const mhpSkel = makeSkeleton(0xf59e0b, 21, MHP_SKELETON);
 mhpSkel.visible(false);
+mhpSkel.points.position.set(1.5, 0.9, 0); // beside the avatar, at pelvis height
+mhpSkel.segs.position.set(1.5, 0.9, 0);
 
 // Render a joint list (x,y,z) into a skeleton, centred on a root joint.
 function renderSkeleton(skel, joints, root, scale) {
@@ -71,7 +114,8 @@ function renderSkeleton(skel, joints, root, scale) {
 }
 
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
-(function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+const clock = new THREE.Clock();
+(function loop() { requestAnimationFrame(loop); const dt = clock.getDelta(); if (vrm) vrm.update(dt); controls.update(); renderer.render(scene, camera); })();
 
 // --- onnxruntime-web (WebGPU) + Mobile Human Pose --------------------------
 let liftSession = null;
@@ -163,14 +207,7 @@ function frame() {
 		const res = pose.detectForVideo(video, performance.now());
 		const world = res.worldLandmarks?.[0];
 		const lm = res.landmarks?.[0];
-		if (world) {
-			const pp = mpSkel.points.geometry.attributes.position.array;
-			for (let i = 0; i < 33; i++) { const w = world[i]; pp[i * 3] = w.x; pp[i * 3 + 1] = -w.y; pp[i * 3 + 2] = -w.z; }
-			mpSkel.points.geometry.attributes.position.needsUpdate = true;
-			const sp = mpSkel.segs.geometry.attributes.position.array;
-			mpSkel.conns.forEach((c, j) => { const a = world[c[0]], b = world[c[1]]; sp[j*6]=a.x; sp[j*6+1]=-a.y; sp[j*6+2]=-a.z; sp[j*6+3]=b.x; sp[j*6+4]=-b.y; sp[j*6+5]=-b.z; });
-			mpSkel.segs.geometry.attributes.position.needsUpdate = true;
-		}
+		if (world && lm) driveVRM(world, lm); // VRM avatar, like v1
 		cctx.save(); cctx.clearRect(0, 0, cam2d.width, cam2d.height); cctx.drawImage(video, 0, 0, cam2d.width, cam2d.height);
 		if (lm) draw.drawConnectors(lm, PoseLandmarker.POSE_CONNECTIONS, { color: '#2b5fd9', lineWidth: 2 });
 		cctx.restore();
@@ -181,6 +218,7 @@ function frame() {
 
 async function start() {
 	if (running) return;
+	if (!vrm) { log('avatar', 'loading…', 'wait'); await loadVRM(); log('avatar', 'ready', 'ok'); }
 	if (!pose) await initPose();
 	if (!liftSession) loadLifter(LIFT_MODEL);
 	const src = document.getElementById('src').value;
