@@ -15,14 +15,17 @@ LEGS = sys.argv[1] if len(sys.argv) > 1 else "webcam"
 SECS = int(sys.argv[2]) if len(sys.argv) > 2 else 10
 BASE = "/org/jonasjohansson/abba/assets/test-clips"
 
+# We only use single-person, clearly-framed clips. Add a candidate here to vet
+# it — if it scores single_person_clear, promote it into test_procedure.py.
 CLIPS = [
-    f"{BASE}/Dancing/pexels-36131698_dancing.mp4",
-    f"{BASE}/Dancing/pexels-6761220_dancing.mp4",
-    f"{BASE}/Disco-Dancing/pexels-34236697_disco-dancing.mp4",
-    f"{BASE}/Disco-Dancing/pexels-34630354_disco-dancing.mp4",
     f"{BASE}/Tai-Chi/pexels-2882793_tai-chi.mp4",
     f"{BASE}/Aerobics/pixabay-149195_aerobics-fitness-health-exercise.mp4",
-    f"{BASE}/Aerobics/pixabay-75644_gymnast-aerobics-exercise-fitness-workou.mp4",
+    # --- excluded (group / subject too small), kept for reference, not run ---
+    # f"{BASE}/Dancing/pexels-36131698_dancing.mp4",
+    # f"{BASE}/Dancing/pexels-6761220_dancing.mp4",
+    # f"{BASE}/Disco-Dancing/pexels-34236697_disco-dancing.mp4",
+    # f"{BASE}/Disco-Dancing/pexels-34630354_disco-dancing.mp4",
+    # f"{BASE}/Aerobics/pixabay-75644_gymnast-aerobics-exercise-fitness-workou.mp4",
 ]
 
 OUT = os.path.join(os.path.dirname(__file__), "out")
