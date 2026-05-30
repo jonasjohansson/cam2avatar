@@ -275,7 +275,10 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		// Asymmetric: shove up firmly if a foot sinks through the floor, but only
 		// drift down gently so a real leg-lift isn't dragged back to the ground.
 		const gain = delta > 0 ? 0.5 : 0.03;
-		vrm.scene.position.y += delta * gain;
+		// Clamp the per-frame correction AND the cumulative offset so noisy leg
+		// depth during a walk can't float the whole avatar off the floor.
+		vrm.scene.position.y += clamp(delta, -0.1, 0.1) * gain;
+		vrm.scene.position.y = clamp(vrm.scene.position.y, -0.25, 0.3);
 	}
 
 	// --- Preview -------------------------------------------------------------
