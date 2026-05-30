@@ -41,6 +41,13 @@
 			<button id="start">Start</button>
 			<button class="sec" id="stop">Stop</button>
 		</div>
+		<label style="display:flex; align-items:center; gap:6px; font-size:12px; text-transform:none; letter-spacing:0; font-weight:400; color:var(--ink); margin:2px 0 0">
+			<input type="checkbox" id="showAvatar" checked> Show avatar (off = blue MediaPipe skeleton)
+		</label>
+		<div class="row" style="margin-top:8px">
+			<button class="sec" id="rec">● Record</button>
+			<select id="recFmt" style="flex:0 0 80px"><option value="webm">WebM</option><option value="mp4">MP4</option></select>
+		</div>
 
 		<label for="model">Lifting model (.onnx URL)</label>
 		<div class="row">

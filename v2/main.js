@@ -31,52 +31,65 @@ const log = (k, v, cls) => {
 
 // --- three.js scene ---------------------------------------------------------
 const view = document.getElementById('view');
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+let compCanvas = null, compCtx = null; // recording composite
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 view.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xdfe3ea);
 const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.01, 100);
-camera.position.set(0.7, 0.9, 3.8);
+camera.position.set(0.85, 0.9, 4.6);
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0.7, 0.9, 0);
+controls.target.set(0.85, 0.9, 0);
 scene.add(new THREE.GridHelper(4, 8, 0xaab0bd, 0xc7ccd6));
 scene.add(new THREE.HemisphereLight(0xffffff, 0x667, 1.4));
 const dir = new THREE.DirectionalLight(0xffffff, 1.4); dir.position.set(1, 2, 1.5); scene.add(dir);
 
-// --- VRM avatar (driven by MediaPipe via Kalidokit, like v1) ----------------
-let vrm = null;
-async function loadVRM() {
+// --- Two VRM avatars: A = MediaPipe (like v1), B = Mobile Human Pose model ---
+const VRM_URL = 'https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/stable/AvatarSample_C.vrm';
+let vrmA = null, vrmB = null;
+async function loadOne(x) {
 	const loader = new GLTFLoader();
 	loader.register((parser) => new VRMLoaderPlugin(parser));
-	const gltf = await loader.loadAsync('https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/stable/AvatarSample_C.vrm');
-	vrm = gltf.userData.vrm;
+	const gltf = await loader.loadAsync(VRM_URL);
+	const v = gltf.userData.vrm;
 	VRMUtils.removeUnnecessaryVertices(gltf.scene);
 	VRMUtils.combineSkeletons(gltf.scene);
-	VRMUtils.rotateVRM0(vrm);
-	vrm.scene.traverse((o) => { o.frustumCulled = false; });
-	vrm.scene.position.x = 0.1; // avatar (clear of the panel), MHP skeleton to its right
-	scene.add(vrm.scene);
+	VRMUtils.rotateVRM0(v);
+	v.scene.traverse((o) => { o.frustumCulled = false; });
+	v.scene.position.x = x;
+	scene.add(v.scene);
+	return v;
 }
+async function loadVRMs() { vrmA = await loadOne(0.1); vrmB = await loadOne(1.6); applyView(); }
 
 const _e = new THREE.Euler(), _q = new THREE.Quaternion();
-function rigRot(name, rot, damp = 1) {
+function rigRot(vrm, name, rot, damp = 1) {
 	const node = vrm?.humanoid?.getNormalizedBoneNode(name);
 	if (!node || !rot) return;
 	_e.set((rot.x ?? 0) * damp, (rot.y ?? 0) * damp, (rot.z ?? 0) * damp, rot.rotationOrder || 'XYZ');
 	node.quaternion.slerp(_q.setFromEuler(_e), 0.4);
 }
-function driveVRM(world, lm) {
+function driveVRM(vrm, world, lm) {
 	if (!vrm || !Kalidokit) return;
 	const rp = Kalidokit.Pose.solve(world, lm, { runtime: 'mediapipe', video });
 	if (!rp) return;
-	rigRot('hips', rp.Hips.rotation, 0.7);
-	rigRot('spine', rp.Spine, 0.45); rigRot('chest', rp.Spine, 0.3);
-	rigRot('rightUpperArm', rp.RightUpperArm); rigRot('rightLowerArm', rp.RightLowerArm);
-	rigRot('leftUpperArm', rp.LeftUpperArm); rigRot('leftLowerArm', rp.LeftLowerArm);
-	rigRot('leftUpperLeg', rp.LeftUpperLeg); rigRot('leftLowerLeg', rp.LeftLowerLeg);
-	rigRot('rightUpperLeg', rp.RightUpperLeg); rigRot('rightLowerLeg', rp.RightLowerLeg);
+	rigRot(vrm, 'hips', rp.Hips.rotation, 0.7);
+	rigRot(vrm, 'spine', rp.Spine, 0.45); rigRot(vrm, 'chest', rp.Spine, 0.3);
+	rigRot(vrm, 'rightUpperArm', rp.RightUpperArm); rigRot(vrm, 'rightLowerArm', rp.RightLowerArm);
+	rigRot(vrm, 'leftUpperArm', rp.LeftUpperArm); rigRot(vrm, 'leftLowerArm', rp.LeftLowerArm);
+	rigRot(vrm, 'leftUpperLeg', rp.LeftUpperLeg); rigRot(vrm, 'leftLowerLeg', rp.LeftLowerLeg);
+	rigRot(vrm, 'rightUpperLeg', rp.RightUpperLeg); rigRot(vrm, 'rightLowerLeg', rp.RightLowerLeg);
+}
+// MHP 21 joints -> MediaPipe-world-format (metric-ish, pelvis-centred) so the
+// same Kalidokit solver can drive avatar B from the new model's 3D.
+const MHP2MP = { 0: 16, 11: 5, 12: 2, 13: 6, 14: 3, 15: 7, 16: 4, 23: 11, 24: 8, 25: 12, 26: 9, 27: 13, 28: 10 };
+function mhpToMpWorld(mhp) {
+	const r = mhp[14], S = 1.7;
+	const w = Array.from({ length: 33 }, () => ({ x: 0, y: 0, z: 0, visibility: 0 }));
+	for (const mp in MHP2MP) { const j = mhp[MHP2MP[mp]]; w[mp] = { x: (j.x - r.x) * S, y: (j.y - r.y) * S, z: -(j.z - r.z) * S, visibility: 1 }; }
+	return w;
 }
 
 function makeSkeleton(color, n, conns) {
@@ -91,11 +104,30 @@ function makeSkeleton(color, n, conns) {
 	return { points, segs, conns, visible: (v) => { points.visible = segs.visible = v; } };
 }
 const mpSkel = makeSkeleton(0x2b5fd9, 33, PoseLandmarker.POSE_CONNECTIONS.map((c) => [c.start, c.end]));
-mpSkel.visible(false); // hidden — the VRM (left) IS the MediaPipe result
+mpSkel.visible(false); // shown only when the avatar is toggled off
+mpSkel.points.position.set(0.1, 0.9, 0); // where the avatar stands
+mpSkel.segs.position.set(0.1, 0.9, 0);
+function updateMpSkel(world) {
+	const pp = mpSkel.points.geometry.attributes.position.array;
+	for (let i = 0; i < 33; i++) { const w = world[i]; pp[i * 3] = w.x; pp[i * 3 + 1] = -w.y; pp[i * 3 + 2] = -w.z; }
+	mpSkel.points.geometry.attributes.position.needsUpdate = true;
+	const sp = mpSkel.segs.geometry.attributes.position.array;
+	mpSkel.conns.forEach((c, j) => { const a = world[c[0]], b = world[c[1]]; sp[j*6]=a.x; sp[j*6+1]=-a.y; sp[j*6+2]=-a.z; sp[j*6+3]=b.x; sp[j*6+4]=-b.y; sp[j*6+5]=-b.z; });
+	mpSkel.segs.geometry.attributes.position.needsUpdate = true;
+}
+const showAvatar = document.getElementById('showAvatar');
+function applyView() {
+	const a = showAvatar.checked;            // avatars vs. skeletons
+	if (vrmA) vrmA.scene.visible = a;
+	if (vrmB) vrmB.scene.visible = a;
+	mpSkel.visible(!a);
+	mhpSkel.visible(!a);
+}
+showAvatar.addEventListener('change', applyView);
 const mhpSkel = makeSkeleton(0xf59e0b, 21, MHP_SKELETON);
 mhpSkel.visible(false);
-mhpSkel.points.position.set(1.5, 0.9, 0); // beside the avatar, at pelvis height
-mhpSkel.segs.position.set(1.5, 0.9, 0);
+mhpSkel.points.position.set(1.6, 0.9, 0); // aligned with avatar B
+mhpSkel.segs.position.set(1.6, 0.9, 0);
 
 // Render a joint list (x,y,z) into a skeleton, centred on a root joint.
 function renderSkeleton(skel, joints, root, scale) {
@@ -115,7 +147,7 @@ function renderSkeleton(skel, joints, root, scale) {
 
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
 const clock = new THREE.Clock();
-(function loop() { requestAnimationFrame(loop); const dt = clock.getDelta(); if (vrm) vrm.update(dt); controls.update(); renderer.render(scene, camera); })();
+(function loop() { requestAnimationFrame(loop); const dt = clock.getDelta(); if (vrmA) vrmA.update(dt); if (vrmB) vrmB.update(dt); controls.update(); renderer.render(scene, camera); if (compCtx) drawComp(); })();
 
 // --- onnxruntime-web (WebGPU) + Mobile Human Pose --------------------------
 let liftSession = null;
@@ -128,7 +160,7 @@ async function loadLifter(url) {
 		const ep = new URLSearchParams(location.search).get('ep') || 'webgpu';
 		liftSession = await ort.InferenceSession.create(url, { executionProviders: ep === 'wasm' ? ['wasm'] : ['webgpu', 'wasm'] });
 		log('model', `loaded · ${liftSession.inputNames[0]} -> ${liftSession.outputNames[0]}`, 'ok');
-		mhpSkel.visible(true);
+		applyView();
 	} catch (e) { console.error(e); log('model', `failed: ${e.message ?? e}`, 'bad'); }
 }
 
@@ -175,7 +207,11 @@ async function runLifter(lm) {
 	try {
 		const input = preprocess(lm);
 		const out = await liftSession.run({ [liftSession.inputNames[0]]: input });
-		renderSkeleton(mhpSkel, decode(out[liftSession.outputNames[0]].data), MHP_ROOT, 1.6);
+		const joints = decode(out[liftSession.outputNames[0]].data);
+		renderSkeleton(mhpSkel, joints, MHP_ROOT, 1.6);
+		const mw = mhpToMpWorld(joints);
+		driveVRM(vrmB, mw, mw); // B = Mobile Human Pose model
+
 	} catch (e) { log('model', `infer error: ${e.message ?? e}`, 'bad'); liftSession = null; }
 	busy = false;
 }
@@ -207,7 +243,7 @@ function frame() {
 		const res = pose.detectForVideo(video, performance.now());
 		const world = res.worldLandmarks?.[0];
 		const lm = res.landmarks?.[0];
-		if (world && lm) driveVRM(world, lm); // VRM avatar, like v1
+		if (world && lm) { driveVRM(vrmA, world, lm); updateMpSkel(world); } // A = MediaPipe
 		cctx.save(); cctx.clearRect(0, 0, cam2d.width, cam2d.height); cctx.drawImage(video, 0, 0, cam2d.width, cam2d.height);
 		if (lm) draw.drawConnectors(lm, PoseLandmarker.POSE_CONNECTIONS, { color: '#2b5fd9', lineWidth: 2 });
 		cctx.restore();
@@ -218,7 +254,7 @@ function frame() {
 
 async function start() {
 	if (running) return;
-	if (!vrm) { log('avatar', 'loading…', 'wait'); await loadVRM(); log('avatar', 'ready', 'ok'); }
+	if (!vrmA) { log('avatar', 'loading 2 avatars…', 'wait'); await loadVRMs(); log('avatar', 'ready', 'ok'); }
 	if (!pose) await initPose();
 	if (!liftSession) loadLifter(LIFT_MODEL);
 	const src = document.getElementById('src').value;
@@ -235,6 +271,47 @@ function stop() {
 }
 document.getElementById('start').addEventListener('click', () => start().catch((e) => log('tracking', `error: ${e.message ?? e}`, 'bad')));
 document.getElementById('stop').addEventListener('click', stop);
+
+// --- recording (3D scene + camera PiP, like v1) -----------------------------
+let recorder = null, chunks = [], recTimer = null;
+const recBtn = document.getElementById('rec'), recFmt = document.getElementById('recFmt');
+function drawComp() {
+	const W = compCanvas.width, H = compCanvas.height;
+	compCtx.drawImage(renderer.domElement, 0, 0, W, H);
+	if (cam2d.width) {
+		const pw = Math.round(W * 0.28), ph = Math.round(pw * cam2d.height / cam2d.width), m = Math.round(W * 0.02);
+		compCtx.drawImage(cam2d, W - pw - m, H - ph - m, pw, ph);
+		compCtx.strokeStyle = '#fff'; compCtx.lineWidth = 2; compCtx.strokeRect(W - pw - m, H - ph - m, pw, ph);
+	}
+}
+recBtn.addEventListener('click', () => {
+	if (!recorder) {
+		compCanvas = document.createElement('canvas');
+		compCanvas.width = renderer.domElement.width; compCanvas.height = renderer.domElement.height;
+		compCtx = compCanvas.getContext('2d');
+		const cands = recFmt.value === 'mp4'
+			? ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm']
+			: ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+		const mime = cands.find((m) => MediaRecorder.isTypeSupported(m));
+		const ext = mime.includes('mp4') ? 'mp4' : 'webm';
+		recorder = new MediaRecorder(compCanvas.captureStream(30), { mimeType: mime, videoBitsPerSecond: 12_000_000 });
+		chunks = [];
+		recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+		recorder.onstop = () => {
+			const blob = new Blob(chunks, { type: mime }), u = URL.createObjectURL(blob), a = document.createElement('a');
+			a.href = u; a.download = `cam2avatar-v2-${Date.now()}.${ext}`; a.click();
+			setTimeout(() => URL.revokeObjectURL(u), 1000);
+		};
+		recorder.start();
+		recBtn.style.background = '#d62828'; recBtn.style.color = '#fff';
+		const t0 = Date.now(); recBtn.textContent = '■ Stop (0s)';
+		recTimer = setInterval(() => { recBtn.textContent = `■ Stop (${Math.floor((Date.now() - t0) / 1000)}s)`; }, 1000);
+	} else {
+		recorder.stop(); recorder = null; clearInterval(recTimer);
+		compCanvas = null; compCtx = null;
+		recBtn.textContent = '● Record'; recBtn.style.background = ''; recBtn.style.color = '';
+	}
+});
 
 // boot
 log('webgpu', navigator.gpu ? 'available' : 'NOT available', navigator.gpu ? 'ok' : 'bad');
