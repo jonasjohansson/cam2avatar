@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { loadMixamoAnimation } from './loadMixamoAnimation.js';
+import { createMocap } from './mocap.js';
 
 // --- Preloaded samples (all hotlinked, verified resolvable) -----------------
 
@@ -206,6 +207,45 @@ speedEl.addEventListener('input', () => {
 	speed = parseFloat(speedEl.value);
 	speedVal.textContent = `${speed.toFixed(1)}×`;
 	if (action) action.timeScale = speed;
+});
+
+// Webcam mocap toggle
+const mocap = createMocap({
+	THREE,
+	video: document.getElementById('webcam'),
+	getVrm: () => currentVrm,
+	log,
+});
+const webcamBtn = document.getElementById('webcam-btn');
+let webcamOn = false;
+webcamBtn.addEventListener('click', async () => {
+	if (!webcamOn) {
+		try {
+			webcamBtn.textContent = '○ starting camera…';
+			await mocap.start();
+			webcamOn = true;
+			webcamBtn.textContent = '■ Stop webcam';
+			// Webcam drives the rig now — stop the Mixamo clip.
+			if (mixer) mixer.stopAllAction();
+			playing = false;
+			playBtn.textContent = 'Play';
+			log('webcam mocap ON — face + upper body + hands. Legs stay put.');
+		} catch (err) {
+			console.error(err);
+			webcamOn = false;
+			webcamBtn.textContent = '● Webcam mocap (beta)';
+			log(`✗ webcam: ${err.message ?? err}`);
+		}
+	} else {
+		mocap.stop();
+		webcamOn = false;
+		webcamBtn.textContent = '● Webcam mocap (beta)';
+		// Hand the rig back to the Mixamo animation.
+		playing = true;
+		playBtn.textContent = 'Pause';
+		applyAnimation();
+		log('webcam off — back to Mixamo clip');
+	}
 });
 
 // Drag & drop anywhere

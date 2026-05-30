@@ -23,6 +23,21 @@ ES module imports and the importmap won't work otherwise.
 - **Load your own** — pick a `.vrm` or `.fbx`, or just **drag the file anywhere** on the page.
 - Same animation retargets live onto whichever character you pick — that's the point: try a bunch.
 
+### Webcam mocap (beta)
+
+Click **Webcam mocap** to puppet the current VRM live from your camera. Stack:
+[MediaPipe Holistic](https://github.com/google/mediapipe) (tracking) →
+[Kalidokit](https://github.com/yeemachine/kalidokit) (kinematics solve) → VRM bones + expressions.
+
+- Drives **face** (head turn, blink, lip-sync mouth shapes, eye look), **upper body**
+  (spine, shoulders, arms), and **fingers**.
+- **Legs / lower body are unreliable** from a single webcam — they mostly stay put.
+- Turning it on **pauses the Mixamo clip** (same rig, one driver at a time); turning it
+  off restores the clip.
+- First activation downloads the MediaPipe model (a few MB) and asks for camera permission.
+  Served over `localhost`, the browser treats it as a secure context, so the camera works.
+- Jittery? Tune the `lerpAmt` / `dampener` values in `mocap.js`.
+
 ### Getting your own assets
 
 - **Animations** — sign in free at [mixamo.com](https://www.mixamo.com), choose an animation,

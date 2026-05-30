@@ -169,6 +169,10 @@
 		</div>
 
 		<div class="field">
+			<button class="secondary" id="webcam-btn">● Webcam mocap (beta)</button>
+		</div>
+
+		<div class="field">
 			<label for="speed">Speed</label>
 			<div class="range-row">
 				<input type="range" id="speed" min="0" max="2" step="0.05" value="1">
@@ -195,6 +199,14 @@
 	</div>
 
 	<div id="drop-hint">Drop .vrm or .fbx</div>
+
+	<!-- Hidden webcam stream for mocap -->
+	<video id="webcam" playsinline muted style="display:none"></video>
+
+	<!-- Tracking libs (classic scripts -> window globals; loaded before the module) -->
+	<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+	<script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js" crossorigin="anonymous"></script>
+	<script src="https://cdn.jsdelivr.net/npm/kalidokit@1.1/dist/kalidokit.umd.js" crossorigin="anonymous"></script>
 
 	<script type="importmap">
 	{
