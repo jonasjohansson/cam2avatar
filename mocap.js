@@ -160,6 +160,45 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		}
 	}
 
+	// Head orientation from pose landmarks, so the head turns even with face
+	// tracking off. Uses image-plane signals (reliable): ear-line tilt = roll,
+	// nose-between-ears = yaw, nose-below-ears = pitch. Signs centralized for
+	// easy flipping if it turns the wrong way live.
+	const HEAD = { yaw: -0.8, pitch: 0.9, roll: -1.0, pitchBias: 0.18 };
+	function rigHeadFromPose(lm) {
+		const nose = lm[0], lEar = lm[7], rEar = lm[8];
+		if (!nose || !lEar || !rEar) return;
+		if ((lEar.visibility ?? 1) < 0.4 || (rEar.visibility ?? 1) < 0.4) return;
+		const dx = rEar.x - lEar.x, dy = rEar.y - lEar.y;
+		const w = Math.hypot(dx, dy) || 1e-3;
+		const roll = Math.atan2(dy, dx);
+		const t = ((nose.x - lEar.x) * dx + (nose.y - lEar.y) * dy) / (w * w); // 0..1 along ear line
+		const yaw = (t - 0.5) * 2;
+		const pitch = (nose.y - (lEar.y + rEar.y) / 2) / w - HEAD.pitchBias;
+		rigRotation('neck', {
+			x: clamp(pitch * HEAD.pitch, -0.6, 0.6),
+			y: clamp(yaw * HEAD.yaw, -0.7, 0.7),
+			z: clamp(roll * HEAD.roll, -0.5, 0.5),
+		}, 0.8);
+	}
+
+	// Confidence gating: when pose is lost (left frame / occluded), ease the
+	// driven bones + expressions toward rest instead of freezing in place.
+	const MANAGED = ['hips', 'spine', 'chest', 'neck', 'leftUpperArm', 'leftLowerArm',
+		'rightUpperArm', 'rightLowerArm', 'leftHand', 'rightHand',
+		'leftUpperLeg', 'leftLowerLeg', 'rightUpperLeg', 'rightLowerLeg'];
+	const _identity = new THREE.Quaternion();
+	function easeToRest() {
+		const vrm = getVrm(); if (!vrm) return;
+		for (const name of MANAGED) {
+			const node = vrm.humanoid?.getNormalizedBoneNode(name);
+			if (node) node.quaternion.slerp(_identity, 0.08);
+		}
+		const em = vrm.expressionManager;
+		if (em) ['blink', 'blinkLeft', 'blinkRight', 'aa', 'ih', 'ou', 'ee', 'oh', 'happy', 'angry', 'sad', 'surprised']
+			.forEach((n) => { if (em.getExpression?.(n)) em.setValue(n, (em.getValue?.(n) || 0) * 0.85); });
+	}
+
 	// --- Per-frame leg helpers ----------------------------------------------
 	const ANKLE_HEIGHT = 0.085;
 	let idleT = 0;
@@ -218,7 +257,6 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 
 		const poseLm = poseR?.landmarks?.[0];
 		const poseWorld = poseR?.worldLandmarks?.[0];
-		window.__poseLm = poseLm || null; // debug hook (orientation checks)
 		let legVis = 0;
 		if (poseLm) {
 			const idx = [25, 26, 27, 28];
@@ -248,6 +286,9 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		if (poseWorld && poseLm) {
 			rp = Kalidokit.Pose.solve(poseWorld, poseLm, { runtime: 'mediapipe', video });
 			if (rp) rigPose(rp);
+			if (!faceLm) rigHeadFromPose(poseLm); // head from pose when face tracking is off
+		} else {
+			easeToRest(); // tracking lost -> relax toward rest instead of freezing
 		}
 		// Hands (handedness tells which side)
 		if (handR?.landmarks && rp) {

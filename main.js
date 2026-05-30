@@ -15,6 +15,10 @@ const CHARACTERS = [
 	{ name: 'VRoid — Sample B',      url: `${CDN}/madjin/vrm-samples@master/vroid/stable/AvatarSample_B.vrm` },
 	{ name: 'VRoid — Vita',          url: `${CDN}/madjin/vrm-samples@master/vroid/beta/Vita.vrm` },
 	{ name: 'VRoid — Sendagaya Shino', url: `${CDN}/madjin/vrm-samples@master/vroid/beta/Sendagaya_Shino.vrm` },
+	{ name: 'VRoid — Victoria Rubin', url: `${CDN}/madjin/vrm-samples@master/vroid/beta/Victoria_Rubin.vrm` },
+	{ name: 'VRoid — Vivi',          url: `${CDN}/madjin/vrm-samples@master/vroid/beta/Vivi.vrm` },
+	{ name: 'Avatar Orion',          url: `${CDN}/madjin/vrm-samples@master/Avatar_Orion.vrm` },
+	{ name: 'Seed-san',              url: `${CDN}/madjin/vrm-samples@master/Seed-san/vrm/Seed-san.vrm` },
 	{ name: 'pixiv — VRM 1.0 robot', url: `${CDN}/pixiv/three-vrm@dev/packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm` },
 ];
 
@@ -206,18 +210,20 @@ const recBtn = document.getElementById('rec-btn');
 recBtn.addEventListener('click', () => {
 	if (!recorder) {
 		const stream = renderer.domElement.captureStream(30);
-		const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
+		// Prefer MP4 where supported (Safari), else WebM (Chrome/Firefox).
+		const mime = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
 			.find((m) => MediaRecorder.isTypeSupported(m));
 		if (!mime) { log('✗ recording not supported in this browser'); return; }
+		const ext = mime.includes('mp4') ? 'mp4' : 'webm';
 		recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12_000_000 });
 		recChunks = [];
 		recorder.ondataavailable = (e) => { if (e.data.size) recChunks.push(e.data); };
 		recorder.onstop = () => {
-			const blob = new Blob(recChunks, { type: 'video/webm' });
+			const blob = new Blob(recChunks, { type: mime });
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement('a');
 			a.href = url;
-			a.download = `vrm-mixamo-${Date.now()}.webm`;
+			a.download = `vrm-mixamo-${Date.now()}.${ext}`;
 			a.click();
 			setTimeout(() => URL.revokeObjectURL(url), 1000);
 			log(`saved recording (${(blob.size / 1e6).toFixed(1)} MB) → Downloads`);
