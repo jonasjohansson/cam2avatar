@@ -462,6 +462,9 @@ optFace.addEventListener('change', () => mocap.setOptions({ face: optFace.checke
 const optPlant = document.getElementById('opt-plant');
 optPlant.addEventListener('change', () => mocap.setOptions({ plantFeet: optPlant.checked }));
 
+const optFollow = document.getElementById('opt-follow');
+optFollow.addEventListener('change', () => mocap.setOptions({ follow: optFollow.checked }));
+
 const optQuality = document.getElementById('opt-quality');
 optQuality.addEventListener('change', () => mocap.setOptions({ quality: optQuality.value }));
 

@@ -49,7 +49,7 @@ class OneEuro {
 
 export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 
-	const opts = { legsMode: 'off', resp: 1, preview: true, face: false, plantFeet: true, quality: 'full', mirror: false };
+	const opts = { legsMode: 'off', resp: 1, preview: true, face: false, plantFeet: true, quality: 'full', mirror: false, follow: false };
 	let mcanvas = null, mctx = null; // offscreen canvas for the mirrored frame
 	let pose = null, hand = null, face = null, fileset = null;
 	let running = false, rafId = 0;
@@ -201,6 +201,7 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 
 	// --- Per-frame leg helpers ----------------------------------------------
 	const ANKLE_HEIGHT = 0.085;
+	const FOLLOW_RANGE = 2.5; // world metres spanned across the camera frame
 	let idleT = 0;
 	function applyIdle(delta) {
 		if (opts.legsMode !== 'idle' || !getVrm()) return;
@@ -287,6 +288,14 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 			rp = Kalidokit.Pose.solve(poseWorld, poseLm, { runtime: 'mediapipe', video });
 			if (rp) rigPose(rp);
 			if (!faceLm) rigHeadFromPose(poseLm); // head from pose when face tracking is off
+			// Horizontal follow: move the whole avatar left/right with the subject
+			// (image-plane x is reliable; depth is not, so we only track x).
+			if (opts.follow) {
+				const lh = poseLm[23], rh = poseLm[24]; // hip landmarks
+				if (lh && rh) vrm.scene.position.x = smooth('rootX', ((lh.x + rh.x) / 2 - 0.5) * FOLLOW_RANGE);
+			} else if (vrm.scene.position.x) {
+				vrm.scene.position.x *= 0.85; // ease back to center when off
+			}
 		} else {
 			easeToRest(); // tracking lost -> relax toward rest instead of freezing
 		}
@@ -394,7 +403,7 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		if (video.src) { video.pause(); video.removeAttribute('src'); video.load(); }
 		filters.clear();
 		const vrm = getVrm();
-		if (vrm) vrm.scene.position.y = 0;
+		if (vrm) { vrm.scene.position.y = 0; vrm.scene.position.x = 0; }
 		if (vrm?.expressionManager) {
 			['blink', 'blinkLeft', 'blinkRight', 'aa', 'ih', 'ou', 'ee', 'oh', 'happy', 'angry', 'sad', 'surprised',
 				'lookUp', 'lookDown', 'lookLeft', 'lookRight'].forEach((n) => {
