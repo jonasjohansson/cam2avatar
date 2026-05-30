@@ -390,7 +390,7 @@ function settingsLines() {
 		lines.push(`plant: ${on(optPlant.checked)}   mirror: ${on(optMirror.checked)}`);
 		lines.push(`quality: ${optQuality.value}   face: ${on(optFace.checked)}   smooth: ${optResp.value}`);
 	} else {
-		lines.push(`anim: ${sel(animSelect)}   speed: ${speedEl.value}x`);
+		lines.push(`anim: ${sel(animSelect)}`);
 	}
 	return lines;
 }
@@ -434,14 +434,6 @@ document.getElementById('reset-cam').addEventListener('click', () => {
 	controls.update();
 });
 
-// Speed
-const speedEl = document.getElementById('speed');
-const speedVal = document.getElementById('speed-val');
-speedEl.addEventListener('input', () => {
-	speed = parseFloat(speedEl.value);
-	speedVal.textContent = `${speed.toFixed(1)}×`;
-	if (action) action.timeScale = speed;
-});
 
 // Scene: background + grid
 const bgColor = document.getElementById('bg-color');

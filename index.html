@@ -269,8 +269,8 @@
 				<span class="rl">Res</span>
 				<select id="cam-res">
 					<option value="640x480">480p</option>
-					<option value="1280x720" selected>720p</option>
-					<option value="1920x1080">1080p</option>
+					<option value="1280x720">720p</option>
+					<option value="1920x1080" selected>1080p</option>
 				</select>
 			</div>
 		</div>
@@ -316,19 +316,11 @@
 			</div>
 		</div>
 
-		<div class="field">
-			<label for="speed">Speed</label>
-			<div class="range-row">
-				<input type="range" id="speed" min="0" max="2" step="0.05" value="1">
-				<span class="val" id="speed-val">1.0×</span>
-			</div>
-		</div>
 
 		<div id="status">booting…</div>
 
-		<details open>
-			<summary>What's happening?</summary>
-			<p>
+		<div style="margin-top:var(--gap)">
+			<p style="font-size:12px; color:var(--muted); line-height:1.5; margin:0">
 				Your camera drives a 3D avatar in real time, entirely in the browser.
 				<a href="https://ai.google.dev/edge/mediapipe" target="_blank" rel="noopener">MediaPipe</a>
 				tracks your body, hands and face; the avatar copies your pose.<br><br>
@@ -340,7 +332,7 @@
 				otherwise it holds still (tune with the confidence slider). Stand back so your whole
 				body is visible, well-lit, for the best result.
 			</p>
-		</details>
+		</div>
 
 		<details>
 			<summary>Where do I get more?</summary>
