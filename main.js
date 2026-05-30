@@ -421,7 +421,7 @@ function drawComposite() {
 	drawSettingsOverlay(W);
 	// Camera picture-in-picture (with landmark overlay) during tracking.
 	if (webcamOn && !previewEl.hidden && guideEl.width) {
-		const pw = Math.round(W * 0.42);
+		const pw = Math.round(W * 0.52);
 		const ph = Math.round((pw * guideEl.height) / guideEl.width);
 		const m = Math.round(W * 0.02);
 		const x = W - pw - m, y = H - ph - m;
@@ -571,6 +571,8 @@ optFollow.addEventListener('change', () => mocap.setOptions({ follow: optFollow.
 
 const optFullbody = document.getElementById('opt-fullbody');
 optFullbody.addEventListener('change', () => mocap.setOptions({ requireFullBody: optFullbody.checked }));
+const optConf = document.getElementById('opt-conf');
+optConf.addEventListener('input', () => mocap.setOptions({ confThreshold: parseFloat(optConf.value) }));
 const trackStatusEl = document.getElementById('track-status');
 const TRACK_UI = {
 	full: { color: '#22c55e', label: 'FULL BODY' },
