@@ -177,7 +177,12 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		const vrm = getVrm(); if (!vrm) return;
 		const fy = (n) => { const b = vrm.humanoid?.getRawBoneNode(n); if (!b) return Infinity; b.getWorldPosition(_p); return _p.y; };
 		const lowest = Math.min(fy('leftFoot'), fy('rightFoot'));
-		if (isFinite(lowest)) vrm.scene.position.y += (ANKLE_HEIGHT - lowest) * 0.25;
+		if (!isFinite(lowest)) return;
+		const delta = ANKLE_HEIGHT - lowest;
+		// Asymmetric: shove up firmly if a foot sinks through the floor, but only
+		// drift down gently so a real leg-lift isn't dragged back to the ground.
+		const gain = delta > 0 ? 0.5 : 0.03;
+		vrm.scene.position.y += delta * gain;
 	}
 
 	// --- Preview -------------------------------------------------------------
