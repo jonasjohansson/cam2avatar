@@ -158,10 +158,10 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 	// leg tracking when you stop.
 	function applyStepLegs(phase, amp) {
 		const swing = Math.sin(phase);
-		rigRotation('leftUpperLeg', { x: Math.max(0, swing) * 0.55 * amp });
-		rigRotation('leftLowerLeg', { x: -Math.max(0, swing) * 0.8 * amp });
-		rigRotation('rightUpperLeg', { x: Math.max(0, -swing) * 0.55 * amp });
-		rigRotation('rightLowerLeg', { x: -Math.max(0, -swing) * 0.8 * amp });
+		rigRotation('leftUpperLeg', { x: Math.max(0, swing) * 0.65 * amp });
+		rigRotation('leftLowerLeg', { x: -Math.max(0, swing) * 1.0 * amp });
+		rigRotation('rightUpperLeg', { x: Math.max(0, -swing) * 0.65 * amp });
+		rigRotation('rightLowerLeg', { x: -Math.max(0, -swing) * 1.0 * amp });
 	}
 
 	function rigHand(rh, side, wristFromPose) {

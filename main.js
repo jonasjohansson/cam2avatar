@@ -421,7 +421,7 @@ function drawComposite() {
 	drawSettingsOverlay(W);
 	// Camera picture-in-picture (with landmark overlay) during tracking.
 	if (webcamOn && !previewEl.hidden && guideEl.width) {
-		const pw = Math.round(W * 0.3);
+		const pw = Math.round(W * 0.42);
 		const ph = Math.round((pw * guideEl.height) / guideEl.width);
 		const m = Math.round(W * 0.02);
 		const x = W - pw - m, y = H - ph - m;
