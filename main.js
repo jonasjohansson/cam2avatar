@@ -104,6 +104,14 @@ function loadCharacter(entry) {
 	return entry.type === 'gltf' ? loadGltf(entry) : loadVRM(entry.url, entry.name);
 }
 
+// Horizontally flip the whole character (works in every mode), preserving the
+// scale magnitude set during normalization.
+let avatarMirrored = false;
+function applyAvatarMirror() {
+	const root = currentVrm?.scene || currentGltf?.scene;
+	if (root) root.scale.x = (avatarMirrored ? -1 : 1) * Math.abs(root.scale.x);
+}
+
 async function loadVRM(src, label) {
 	log(`loading character: ${label}…`);
 	try {
@@ -127,6 +135,7 @@ async function loadVRM(src, label) {
 		currentVrm = vrm;
 
 		refreshSkeleton(); // rebuild the overlay for the new rig
+		applyAvatarMirror();
 
 		const ver = vrm.meta?.metaVersion === '0' ? 'VRM 0.x' : 'VRM 1.0';
 		log(`character ready: ${label}  (${ver})`);
@@ -168,6 +177,7 @@ async function loadGltf(entry, srcOverride) {
 		currentGltf = { scene: root, rig, builtin, builtinDefault: entry.builtin, name: entry.name };
 
 		refreshSkeleton();
+		applyAvatarMirror();
 		log(`character ready: ${entry.name}  (glTF, ${rig} rig)`);
 		if (currentAnim) await applyAnimation();
 	} catch (err) {
@@ -435,6 +445,12 @@ function refreshSkeleton() {
 	}
 }
 optSkel.addEventListener('change', refreshSkeleton);
+
+const optMirrorAvatar = document.getElementById('opt-mirror-avatar');
+optMirrorAvatar.addEventListener('change', () => {
+	avatarMirrored = optMirrorAvatar.checked;
+	applyAvatarMirror();
+});
 
 // Drag & drop anywhere
 let dragDepth = 0;
