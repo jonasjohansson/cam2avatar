@@ -318,6 +318,11 @@ optResp.addEventListener('input', () => mocap.setOptions({ resp: parseFloat(optR
 const optFace = document.getElementById('opt-face');
 optFace.addEventListener('change', () => mocap.setOptions({ face: optFace.checked }));
 
+const optPlant = document.getElementById('opt-plant');
+optPlant.addEventListener('change', () => mocap.setOptions({ plantFeet: optPlant.checked }));
+
+const fpsEl = document.getElementById('fps');
+
 // Skeleton overlay — draws the VRM's actual bones on top of the mesh so you can
 // see exactly which bones are (or aren't) being driven.
 let skeletonHelper = null;
@@ -366,6 +371,7 @@ function animate() {
 	if (webcamOn) mocap.applyIdle(delta);   // set leg targets before the rig solves
 	if (currentVrm) currentVrm.update(delta);
 	if (webcamOn) mocap.groundContact();    // plant feet after world matrices update
+	if (webcamOn && window.__mocapFps != null) fpsEl.textContent = `${window.__mocapFps} fps`;
 	controls.update();
 	renderer.render(scene, camera);
 }

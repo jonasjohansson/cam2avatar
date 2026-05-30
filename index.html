@@ -169,6 +169,17 @@
 			object-fit: cover;
 		}
 		#preview.mirror video, #preview.mirror canvas { transform: scaleX(-1); } /* selfie mirror for live cam only */
+		#fps {
+			position: absolute;
+			top: 4px; left: 6px;
+			z-index: 2;
+			font-family: var(--mono);
+			font-size: 11px;
+			color: #4ade80;
+			background: rgba(0,0,0,0.55);
+			padding: 1px 5px;
+			border-radius: 3px;
+		}
 		#preview video { display: none; } /* canvas already draws the frame */
 
 		details { margin-top: var(--gap); font-size: 12px; }
@@ -239,6 +250,7 @@
 					<option value="idle">Idle — procedural weight-shift</option>
 				</select>
 			</div>
+			<label class="check"><input type="checkbox" id="opt-plant" checked> Plant feet on floor</label>
 			<div class="range-row">
 				<span class="rl">Smooth</span>
 				<input type="range" id="opt-resp" min="0.3" max="1.6" step="0.05" value="1">
@@ -278,6 +290,7 @@
 	<div id="preview" hidden>
 		<video id="webcam" playsinline muted></video>
 		<canvas id="guide" width="640" height="480"></canvas>
+		<span id="fps"></span>
 	</div>
 
 	<!-- Kalidokit (body + hand kinematics solver) as a window global -->

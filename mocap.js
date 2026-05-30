@@ -48,7 +48,7 @@ class OneEuro {
 
 export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 
-	const opts = { legsMode: 'off', resp: 1, preview: true, face: false };
+	const opts = { legsMode: 'off', resp: 1, preview: true, face: false, plantFeet: true };
 	let pose = null, hand = null, face = null, fileset = null;
 	let running = false, rafId = 0;
 	let drawUtils = null;
@@ -173,7 +173,7 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		rigRotation('rightLowerLeg', { x: -Math.max(0, -sway) * 0.16, y: 0, z: 0 });
 	}
 	function groundContact() {
-		if (opts.legsMode === 'off') return;
+		if (opts.legsMode === 'off' || !opts.plantFeet) return;
 		const vrm = getVrm(); if (!vrm) return;
 		const fy = (n) => { const b = vrm.humanoid?.getRawBoneNode(n); if (!b) return Infinity; b.getWorldPosition(_p); return _p.y; };
 		const lowest = Math.min(fy('leftFoot'), fy('rightFoot'));
@@ -281,6 +281,7 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		if (opts.face) await ensureFace();
 	}
 
+	let fpsCount = 0, fpsT = 0;
 	function loop() {
 		if (!running) return;
 		if (video.readyState >= 2 && video.videoWidth > 0) {
@@ -290,6 +291,9 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 			try { hR = hand.detectForVideo(video, t); } catch (e) { /* */ }
 			if (opts.face && face) { try { fR = face.detectForVideo(video, t); } catch (e) { /* */ } }
 			process(pR, hR, fR);
+			// Tracking FPS (inference throughput), exposed for the readout + harness.
+			fpsCount++;
+			if (t - fpsT >= 500) { window.__mocapFps = Math.round((fpsCount * 1000) / (t - fpsT)); fpsCount = 0; fpsT = t; }
 		}
 		if (running) {
 			if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(loop);
@@ -320,6 +324,7 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 
 	function stop() {
 		running = false;
+		window.__mocapFps = null;
 		if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
 		if (video.srcObject) { video.srcObject.getTracks().forEach((t) => t.stop()); video.srcObject = null; }
 		if (video.src) { video.pause(); video.removeAttribute('src'); video.load(); }
