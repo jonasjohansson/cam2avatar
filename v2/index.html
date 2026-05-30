@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>cam2avatar v2 — WebGPU 3D-lift sandbox</title>
+	<style>
+		:root { --bg:#f4f1ea; --panel:#fff; --ink:#1a1a1a; --muted:#666; --border:#cfc9bd; --accent:#2b5fd9; --mono:"SF Mono",Menlo,monospace; --font:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif; }
+		* { box-sizing:border-box; }
+		html,body { margin:0; height:100%; overflow:hidden; font-family:var(--font); color:var(--ink); background:var(--bg); }
+		#view { position:fixed; inset:0; }
+		canvas { display:block; }
+		#panel { position:fixed; top:10px; left:10px; width:320px; background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:12px; box-shadow:0 2px 8px rgba(0,0,0,.12); max-height:calc(100vh - 20px); overflow:auto; }
+		#panel h1 { font-size:14px; margin:0 0 2px; }
+		#panel .sub { font-size:11px; color:var(--muted); margin:0 0 10px; }
+		.row { display:flex; gap:8px; margin-bottom:8px; }
+		button, select, input { font-family:var(--font); font-size:13px; padding:6px 8px; border:1px solid var(--border); border-radius:6px; background:#fff; }
+		button { cursor:pointer; background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+		button.sec { background:#fff; color:var(--ink); border-color:var(--border); font-weight:500; }
+		label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); display:block; margin:6px 0 3px; }
+		#status { margin-top:10px; padding-top:8px; border-top:1px solid var(--border); font-family:var(--mono); font-size:11px; color:var(--muted); white-space:pre-wrap; line-height:1.6; }
+		#cam2d { position:fixed; right:10px; bottom:10px; width:300px; border:1px solid var(--border); border-radius:6px; background:#000; }
+		a { color:var(--accent); }
+		.pill { display:inline-block; font-family:var(--mono); font-size:10px; padding:1px 6px; border-radius:10px; }
+		.ok { background:#dcfce7; color:#166534; } .bad { background:#fee2e2; color:#991b1b; } .wait { background:#fef9c3; color:#854d0e; }
+	</style>
+</head>
+<body>
+	<div id="view"></div>
+
+	<div id="panel">
+		<h1>cam2avatar v2 — WebGPU 3D-lift sandbox</h1>
+		<p class="sub">Experiment: live MediaPipe 3D vs. an ONNX 2D→3D lifting model (onnxruntime-web / WebGPU). Sandboxed; doesn't touch the main app.</p>
+
+		<label for="src">Source</label>
+		<select id="src" style="width:100%">
+			<option value="camera">Webcam (live)</option>
+			<option value="../assets/clips/aerobics.mp4" selected>Aerobics clip</option>
+		</select>
+		<div class="row" style="margin-top:8px">
+			<button id="start">Start</button>
+			<button class="sec" id="stop">Stop</button>
+		</div>
+
+		<label for="model">Lifting model (.onnx URL)</label>
+		<div class="row">
+			<input id="model" placeholder="https://…/lifter.onnx" style="flex:1">
+			<button class="sec" id="loadModel">Load</button>
+		</div>
+
+		<div id="status">booting…</div>
+
+		<details style="margin-top:10px; font-size:12px">
+			<summary style="cursor:pointer; color:var(--accent)">What is this?</summary>
+			<p style="color:var(--muted); line-height:1.5">
+				The blue skeleton is MediaPipe's own monocular 3D (its weakest axis is depth).
+				onnxruntime-web is initialized on WebGPU here so a 2D→3D <em>lifting</em> model can
+				be dropped in to recover better depth. No public browser-ready lifter exists yet —
+				you export one (e.g. SimpleBaseline3D from MMPose) to ONNX, host it, paste the URL.
+				The lifted skeleton then renders in orange next to MediaPipe's for A/B.
+			</p>
+		</details>
+	</div>
+
+	<canvas id="cam2d" width="300" height="225"></canvas>
+
+	<script type="importmap">
+	{
+		"imports": {
+			"three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+			"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+			"@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs",
+			"onnxruntime-web/webgpu": "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0/dist/ort.webgpu.bundle.min.mjs"
+		}
+	}
+	</script>
+	<video id="vid" playsinline muted style="display:none"></video>
+	<script type="module" src="./main.js"></script>
+</body>
+</html>
