@@ -329,14 +329,21 @@ playBtn.addEventListener('click', () => {
 	playBtn.textContent = playing ? 'Pause' : 'Play';
 });
 
-// Record the 3D canvas to a WebM (downloads on stop)
+// Record the 3D canvas (+ camera PiP during tracking) to a video file.
 let recorder = null;
 let recChunks = [];
 let recTimer = null;
+let compCanvas = null;   // composite canvas: 3D scene + camera picture-in-picture
+let compCtx = null;
+const guideEl = document.getElementById('guide');
 const recBtn = document.getElementById('rec-btn');
 recBtn.addEventListener('click', () => {
 	if (!recorder) {
-		const stream = renderer.domElement.captureStream(30);
+		compCanvas = document.createElement('canvas');
+		compCanvas.width = renderer.domElement.width;
+		compCanvas.height = renderer.domElement.height;
+		compCtx = compCanvas.getContext('2d');
+		const stream = compCanvas.captureStream(30);
 		// Prefer MP4 where supported (Safari), else WebM (Chrome/Firefox).
 		const mime = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
 			.find((m) => MediaRecorder.isTypeSupported(m));
@@ -365,11 +372,31 @@ recBtn.addEventListener('click', () => {
 	} else {
 		recorder.stop();
 		recorder = null;
+		compCanvas = null;
+		compCtx = null;
 		clearInterval(recTimer);
 		recBtn.classList.remove('recording');
 		recBtn.textContent = '● Record';
 	}
 });
+
+// Paint the composite frame (called from the render loop after renderer.render).
+function drawComposite() {
+	if (!compCtx) return;
+	const W = compCanvas.width, H = compCanvas.height;
+	compCtx.drawImage(renderer.domElement, 0, 0, W, H);
+	// Camera picture-in-picture (with landmark overlay) during tracking.
+	if (webcamOn && !previewEl.hidden && guideEl.width) {
+		const pw = Math.round(W * 0.3);
+		const ph = Math.round((pw * guideEl.height) / guideEl.width);
+		const m = Math.round(W * 0.02);
+		const x = W - pw - m, y = H - ph - m;
+		compCtx.drawImage(guideEl, x, y, pw, ph);
+		compCtx.strokeStyle = '#ffffff';
+		compCtx.lineWidth = Math.max(2, Math.round(W * 0.0025));
+		compCtx.strokeRect(x, y, pw, ph);
+	}
+}
 
 // Reset camera
 document.getElementById('reset-cam').addEventListener('click', () => {
@@ -572,6 +599,7 @@ function animate() {
 	if (webcamOn && window.__mocapFps != null) fpsEl.textContent = `${window.__mocapFps} fps`;
 	controls.update();
 	renderer.render(scene, camera);
+	if (compCtx) drawComposite(); // composite the recording frame after render
 }
 animate();
 
