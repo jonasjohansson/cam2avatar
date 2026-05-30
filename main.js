@@ -20,6 +20,13 @@ const CHARACTERS = [
 	{ name: 'Avatar Orion',          url: `${CDN}/madjin/vrm-samples@master/Avatar_Orion.vrm` },
 	{ name: 'Seed-san',              url: `${CDN}/madjin/vrm-samples@master/Seed-san/vrm/Seed-san.vrm` },
 	{ name: 'pixiv — VRM 1.0 robot', url: `${CDN}/pixiv/three-vrm@dev/packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm` },
+	// three.js glTF characters (non-VRM). Their rest poses don't match the raw
+	// Mixamo bind pose, so they use their own built-in animations. Webcam mocap
+	// is VRM-only.
+	{ name: 'three.js — Xbot',     url: `${CDN}/mrdoob/three.js@r180/examples/models/gltf/Xbot.glb`, type: 'gltf', builtin: 'run' },
+	{ name: 'three.js — Soldier',  url: `${CDN}/mrdoob/three.js@r180/examples/models/gltf/Soldier.glb`, type: 'gltf', builtin: 'Walk', faceY: 180 },
+	{ name: 'three.js — Michelle', url: `${CDN}/mrdoob/three.js@r180/examples/models/gltf/Michelle.glb`, type: 'gltf', builtin: 'SambaDance' },
+	{ name: 'three.js — Robot',    url: `${CDN}/mrdoob/three.js@r180/examples/models/gltf/RobotExpressive/RobotExpressive.glb`, type: 'gltf', builtin: 'Dance' },
 ];
 
 const ANIMATIONS = [
@@ -62,6 +69,7 @@ scene.add(grid);
 // --- State ------------------------------------------------------------------
 
 let currentVrm = null;
+let currentGltf = null;       // non-VRM glTF character { scene, rig, builtin, name }
 let mixer = null;
 let action = null;
 let currentAnim = null;      // { url } | { file }
@@ -82,6 +90,19 @@ function makeGltfLoader() {
 	loader.register((parser) => new VRMLoaderPlugin(parser));
 	return loader;
 }
+const plainGltfLoader = new GLTFLoader(); // for non-VRM glTF characters
+
+// Remove + dispose whatever character is currently in the scene.
+function disposeCurrent() {
+	if (mixer) { mixer.stopAllAction(); mixer = null; action = null; }
+	if (currentVrm) { scene.remove(currentVrm.scene); VRMUtils.deepDispose(currentVrm.scene); currentVrm = null; }
+	if (currentGltf) { scene.remove(currentGltf.scene); currentGltf.scene.traverse((o) => { o.geometry?.dispose?.(); }); currentGltf = null; }
+}
+
+// Route a character entry to the right loader.
+function loadCharacter(entry) {
+	return entry.type === 'gltf' ? loadGltf(entry) : loadVRM(entry.url, entry.name);
+}
 
 async function loadVRM(src, label) {
 	log(`loading character: ${label}…`);
@@ -97,11 +118,7 @@ async function loadVRM(src, label) {
 		// VRM 0.x faces +Z; rotate so every avatar faces the camera the same way.
 		VRMUtils.rotateVRM0(vrm);
 
-		// Swap out the old one
-		if (currentVrm) {
-			scene.remove(currentVrm.scene);
-			VRMUtils.deepDispose(currentVrm.scene);
-		}
+		disposeCurrent();
 
 		// Don't waste cycles on frustum culling tiny humanoid meshes
 		vrm.scene.traverse((o) => { o.frustumCulled = false; });
@@ -122,28 +139,77 @@ async function loadVRM(src, label) {
 	}
 }
 
-// --- Loading: Mixamo animation ----------------------------------------------
-
-async function applyAnimation() {
-	if (!currentVrm || !currentAnim) return;
-	const label = currentAnim.label ?? 'animation';
-	log(`retargeting ${label}…`);
+async function loadGltf(entry, srcOverride) {
+	log(`loading character: ${entry.name}…`);
 	try {
-		const url = currentAnim.url ?? URL.createObjectURL(currentAnim.file);
-		const clip = await loadMixamoAnimation(url, currentVrm);
-		if (currentAnim.file) URL.revokeObjectURL(url);
+		const gltf = await plainGltfLoader.loadAsync(srcOverride ?? entry.url);
+		const root = gltf.scene;
+		// Auto-detect rig for dropped files, else trust the entry.
+		const hasMixamo = !!root.getObjectByName('mixamorigHips');
+		const rig = entry.rig ?? (hasMixamo ? 'mixamorig' : 'unknown');
+		// Normalize size + placement (glTF chars vary wildly in scale/origin):
+		// face the camera, scale to ~1.6 m, drop feet to the floor, center on x/z.
+		if (entry.faceY) root.rotation.y = (entry.faceY * Math.PI) / 180;
+		root.updateMatrixWorld(true);
+		const size = new THREE.Vector3();
+		new THREE.Box3().setFromObject(root).getSize(size);
+		root.scale.setScalar(size.y > 1e-3 ? 1.6 / size.y : 1);
+		root.updateMatrixWorld(true);
+		const b = new THREE.Box3().setFromObject(root);
+		root.position.x -= (b.min.x + b.max.x) / 2;
+		root.position.z -= (b.min.z + b.max.z) / 2;
+		root.position.y -= b.min.y;
+		root.traverse((o) => { o.frustumCulled = false; });
 
-		if (mixer) mixer.stopAllAction();
-		mixer = new THREE.AnimationMixer(currentVrm.scene);
-		action = mixer.clipAction(clip);
-		action.timeScale = speed;
-		action.play();
-		if (!playing) action.paused = true;
+		disposeCurrent();
+		scene.add(root);
+		const builtin = {};
+		gltf.animations.forEach((a) => { builtin[a.name] = a; });
+		currentGltf = { scene: root, rig, builtin, builtinDefault: entry.builtin, name: entry.name };
 
-		log(`▶ ${currentVrm.meta?.name ?? 'character'} · ${label}`);
+		refreshSkeleton();
+		log(`character ready: ${entry.name}  (glTF, ${rig} rig)`);
+		if (currentAnim) await applyAnimation();
 	} catch (err) {
 		console.error(err);
-		log(`✗ failed to retarget animation\n${err.message ?? err}`);
+		log(`✗ failed to load character\n${err.message ?? err}`);
+	}
+}
+
+// --- Loading: Mixamo animation ----------------------------------------------
+
+function startClip(root, clip, who, label) {
+	if (mixer) mixer.stopAllAction();
+	mixer = new THREE.AnimationMixer(root);
+	action = mixer.clipAction(clip);
+	action.timeScale = speed;
+	action.play();
+	if (!playing) action.paused = true;
+	log(`▶ ${who} · ${label}`);
+}
+
+async function applyAnimation() {
+	if (!currentAnim) return;
+	const label = currentAnim.label ?? 'animation';
+	try {
+		if (currentVrm) {
+			log(`retargeting ${label}…`);
+			const url = currentAnim.url ?? URL.createObjectURL(currentAnim.file);
+			const clip = await loadMixamoAnimation(url, currentVrm);
+			if (currentAnim.file) URL.revokeObjectURL(url);
+			startClip(currentVrm.scene, clip, currentVrm.meta?.name ?? 'character', label);
+		} else if (currentGltf) {
+			// glTF characters use their own built-in animations (their rest poses
+			// don't match the raw Mixamo bind pose). Mixamo dropdown doesn't apply.
+			const name = (currentGltf.builtinDefault && currentGltf.builtin[currentGltf.builtinDefault])
+				? currentGltf.builtinDefault : Object.keys(currentGltf.builtin)[0];
+			const clip = currentGltf.builtin[name];
+			if (clip) startClip(currentGltf.scene, clip, currentGltf.name, `built-in: ${name}`);
+			else log(`${currentGltf.name}: no built-in animation`);
+		}
+	} catch (err) {
+		console.error(err);
+		log(`✗ animation failed\n${err.message ?? err}`);
 	}
 }
 
@@ -156,8 +222,7 @@ CHARACTERS.forEach((c, i) => {
 	charSelect.appendChild(opt);
 });
 charSelect.addEventListener('change', () => {
-	const c = CHARACTERS[charSelect.value];
-	loadVRM(c.url, c.name);
+	loadCharacter(CHARACTERS[charSelect.value]);
 });
 
 const animSelect = document.getElementById('anim-select');
@@ -188,6 +253,10 @@ animFile.addEventListener('change', () => {
 function loadVRMFile(file) {
 	const url = URL.createObjectURL(file);
 	loadVRM(url, file.name).finally(() => URL.revokeObjectURL(url));
+}
+function loadGltfFile(file) {
+	const url = URL.createObjectURL(file);
+	loadGltf({ name: file.name }, url).finally(() => URL.revokeObjectURL(url));
 }
 function loadAnimFile(file) {
 	currentAnim = { file, label: file.name };
@@ -275,6 +344,10 @@ const sourceSelect = document.getElementById('source-select');
 let webcamOn = false;
 webcamBtn.addEventListener('click', async () => {
 	if (!webcamOn) {
+		if (!currentVrm) {
+			log('Webcam mocap needs a VRM character (glTF characters are animation-only for now)');
+			return;
+		}
 		try {
 			const src = sourceSelect.value;
 			const isCam = src === 'camera';
@@ -351,8 +424,9 @@ function refreshSkeleton() {
 		skeletonHelper.material?.dispose();
 		skeletonHelper = null;
 	}
-	if (optSkel.checked && currentVrm) {
-		skeletonHelper = new THREE.SkeletonHelper(currentVrm.scene);
+	const root = currentVrm?.scene || currentGltf?.scene;
+	if (optSkel.checked && root) {
+		skeletonHelper = new THREE.SkeletonHelper(root);
 		skeletonHelper.material.depthTest = false; // always visible, even through the mesh
 		skeletonHelper.material.depthWrite = false;
 		skeletonHelper.material.transparent = true;
@@ -373,7 +447,8 @@ window.addEventListener('drop', (e) => {
 	document.body.classList.remove('dragging');
 	for (const file of e.dataTransfer.files) {
 		const ext = file.name.split('.').pop().toLowerCase();
-		if (ext === 'vrm' || ext === 'glb') loadVRMFile(file);
+		if (ext === 'vrm') loadVRMFile(file);
+		else if (ext === 'glb' || ext === 'gltf') loadGltfFile(file);
 		else if (ext === 'fbx') loadAnimFile(file);
 		else log(`unsupported file: ${file.name}`);
 	}
@@ -403,4 +478,4 @@ window.addEventListener('resize', () => {
 // --- Boot: load default character + animation -------------------------------
 
 currentAnim = { url: ANIMATIONS[0].url, label: ANIMATIONS[0].name };
-loadVRM(CHARACTERS[0].url, CHARACTERS[0].name);
+loadCharacter(CHARACTERS[0]);
