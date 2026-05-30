@@ -243,6 +243,14 @@
 			<label class="check"><input type="checkbox" id="opt-preview" checked> Camera preview</label>
 			<label class="check"><input type="checkbox" id="opt-face"> Face tracking (52 blendshapes)</label>
 			<div class="field" style="margin:4px 0 6px">
+				<label for="opt-quality">Tracking quality</label>
+				<select id="opt-quality">
+					<option value="lite">Lite — fastest</option>
+					<option value="full" selected>Full — balanced</option>
+					<option value="heavy">Heavy — most accurate</option>
+				</select>
+			</div>
+			<div class="field" style="margin:4px 0 6px">
 				<label for="opt-legs">Legs</label>
 				<select id="opt-legs">
 					<option value="off">Off — feet pinned (most stable)</option>

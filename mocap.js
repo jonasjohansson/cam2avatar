@@ -20,8 +20,9 @@ import {
 
 const TV = '0.10.35';
 const WASM = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${TV}/wasm`;
+// Pose model quality: lite (fastest) | full (balanced) | heavy (most accurate).
+const POSE_MODEL = (q) => `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_${q}/float16/latest/pose_landmarker_${q}.task`;
 const MODELS = {
-	pose: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/latest/pose_landmarker_heavy.task',
 	hand: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task',
 	face: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task',
 };
@@ -48,7 +49,7 @@ class OneEuro {
 
 export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 
-	const opts = { legsMode: 'off', resp: 1, preview: true, face: false, plantFeet: true };
+	const opts = { legsMode: 'off', resp: 1, preview: true, face: false, plantFeet: true, quality: 'full' };
 	let pose = null, hand = null, face = null, fileset = null;
 	let running = false, rafId = 0;
 	let drawUtils = null;
@@ -276,9 +277,15 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		fileset = await FilesetResolver.forVisionTasks(WASM);
 		log('loading tracking models…');
 		// Body + hands only by default — fastest path for realtime. Face is opt-in.
-		pose = await makeLandmarker(PoseLandmarker, MODELS.pose, { numPoses: 1 });
+		pose = await makeLandmarker(PoseLandmarker, POSE_MODEL(opts.quality), { numPoses: 1 });
 		hand = await makeLandmarker(HandLandmarker, MODELS.hand, { numHands: 2 });
 		if (opts.face) await ensureFace();
+	}
+	async function setQuality(q) {
+		if (!fileset) return;
+		const old = pose; pose = null;
+		pose = await makeLandmarker(PoseLandmarker, POSE_MODEL(q), { numPoses: 1 });
+		old?.close?.();
 	}
 
 	let fpsCount = 0, fpsT = 0;
@@ -287,7 +294,7 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		if (video.readyState >= 2 && video.videoWidth > 0) {
 			const t = performance.now();
 			let pR, hR, fR;
-			try { pR = pose.detectForVideo(video, t); } catch (e) { /* */ }
+			try { if (pose) pR = pose.detectForVideo(video, t); } catch (e) { /* */ }
 			try { hR = hand.detectForVideo(video, t); } catch (e) { /* */ }
 			if (opts.face && face) { try { fR = face.detectForVideo(video, t); } catch (e) { /* */ } }
 			process(pR, hR, fR);
@@ -341,8 +348,10 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 	}
 
 	function setOptions(patch) {
+		const qChanged = patch.quality && patch.quality !== opts.quality;
 		Object.assign(opts, patch);
-		if (patch.face && running) ensureFace(); // lazy-load face model on enable
+		if (patch.face && running) ensureFace();      // lazy-load face model on enable
+		if (qChanged && running) setQuality(opts.quality); // swap pose model live
 	}
 
 	return { start, stop, setOptions, applyIdle, groundContact, isRunning: () => running };

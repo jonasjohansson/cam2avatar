@@ -321,6 +321,9 @@ optFace.addEventListener('change', () => mocap.setOptions({ face: optFace.checke
 const optPlant = document.getElementById('opt-plant');
 optPlant.addEventListener('change', () => mocap.setOptions({ plantFeet: optPlant.checked }));
 
+const optQuality = document.getElementById('opt-quality');
+optQuality.addEventListener('change', () => mocap.setOptions({ quality: optQuality.value }));
+
 const fpsEl = document.getElementById('fps');
 
 // Skeleton overlay — draws the VRM's actual bones on top of the mesh so you can
