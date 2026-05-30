@@ -315,6 +315,9 @@ optPreview.addEventListener('change', () => {
 optLegs.addEventListener('change', () => mocap.setOptions({ legsMode: optLegs.value }));
 optResp.addEventListener('input', () => mocap.setOptions({ resp: parseFloat(optResp.value) }));
 
+const optFace = document.getElementById('opt-face');
+optFace.addEventListener('change', () => mocap.setOptions({ face: optFace.checked }));
+
 // Skeleton overlay — draws the VRM's actual bones on top of the mesh so you can
 // see exactly which bones are (or aren't) being driven.
 let skeletonHelper = null;

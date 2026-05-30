@@ -230,6 +230,7 @@
 		</div>
 		<div id="mocap-opts" hidden>
 			<label class="check"><input type="checkbox" id="opt-preview" checked> Camera preview</label>
+			<label class="check"><input type="checkbox" id="opt-face"> Face tracking (52 blendshapes)</label>
 			<div class="field" style="margin:4px 0 6px">
 				<label for="opt-legs">Legs</label>
 				<select id="opt-legs">
@@ -279,10 +280,7 @@
 		<canvas id="guide" width="640" height="480"></canvas>
 	</div>
 
-	<!-- Tracking libs (classic scripts -> window globals; loaded before the module) -->
-	<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-	<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
-	<script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js" crossorigin="anonymous"></script>
+	<!-- Kalidokit (body + hand kinematics solver) as a window global -->
 	<script src="https://cdn.jsdelivr.net/npm/kalidokit@1.1/dist/kalidokit.umd.js" crossorigin="anonymous"></script>
 
 	<script type="importmap">
@@ -290,7 +288,8 @@
 		"imports": {
 			"three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
 			"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
-			"@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.5.3/lib/three-vrm.module.js"
+			"@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.5.3/lib/three-vrm.module.js",
+			"@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs"
 		}
 	}
 	</script>

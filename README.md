@@ -25,18 +25,24 @@ ES module imports and the importmap won't work otherwise.
 
 ### Webcam mocap (beta)
 
-Click **Webcam mocap** to puppet the current VRM live from your camera. Stack:
-[MediaPipe Holistic](https://github.com/google/mediapipe) (tracking) →
-[Kalidokit](https://github.com/yeemachine/kalidokit) (kinematics solve) → VRM bones + expressions.
+Click **Start tracking** to puppet the current VRM live from your camera (or a test
+clip). Stack:
+[MediaPipe Tasks Vision](https://ai.google.dev/edge/mediapipe) — PoseLandmarker (Heavy) +
+HandLandmarker on the **GPU** → [Kalidokit](https://github.com/yeemachine/kalidokit)
+(kinematics) → VRM bones, with **One-Euro filtering** (low latency + low jitter).
 
-- Drives **face** (head turn, blink, lip-sync mouth shapes, eye look), **upper body**
-  (spine, shoulders, arms), and **fingers**.
-- **Legs / lower body are unreliable** from a single webcam — they mostly stay put.
-- Turning it on **pauses the Mixamo clip** (same rig, one driver at a time); turning it
-  off restores the clip.
-- First activation downloads the MediaPipe model (a few MB) and asks for camera permission.
-  Served over `localhost`, the browser treats it as a secure context, so the camera works.
-- Jittery? Tune the `lerpAmt` / `dampener` values in `mocap.js`.
+- Drives **body** (spine, shoulders, arms), **hands/fingers**, and **legs** (opt-in).
+- **Tracking source**: live webcam, or a single-person test clip.
+- **Legs**: Off (pinned) / Webcam + ground contact / Idle. Webcam legs need your whole
+  body in frame; see `eval/README.md`.
+- **Face** is an opt-in toggle (52 ARKit blendshapes via FaceLandmarker). Off by default
+  so the body runs at max framerate — face needs your face large/close in frame.
+- Turning it on **pauses the Mixamo clip** (same rig, one driver at a time).
+- First activation downloads the models (~35 MB) and asks for camera permission.
+  Served over `localhost`, the browser treats it as a secure context.
+- Jittery vs laggy? Use the **Smooth ↔ Snappy** slider (One-Euro `minCutoff`).
+
+Validate tracking objectively with the harness in `eval/` (see `eval/README.md`).
 
 ### Getting your own assets
 

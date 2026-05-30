@@ -82,7 +82,7 @@ def evaluate(page, clip, legs="webcam", secs=12, shot_prefix=None):
             raise SystemExit(f"no clip matching '{clip}'")
 
     page.locator("#webcam-btn").click()
-    page.wait_for_selector("#mocap-opts", state="visible", timeout=15000)
+    page.wait_for_selector("#mocap-opts", state="visible", timeout=90000)  # model download
     page.select_option("#opt-legs", legs)
 
     got = False
