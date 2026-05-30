@@ -263,7 +263,7 @@ optPreview.addEventListener('change', () => {
 	mocap.setOptions({ preview: optPreview.checked });
 	if (webcamOn) previewEl.hidden = !optPreview.checked;
 });
-optLegs.addEventListener('change', () => mocap.setOptions({ trackLegs: optLegs.checked }));
+optLegs.addEventListener('change', () => mocap.setOptions({ legsMode: optLegs.value }));
 optResp.addEventListener('input', () => mocap.setOptions({ resp: parseFloat(optResp.value) }));
 
 // Drag & drop anywhere
@@ -289,7 +289,9 @@ function animate() {
 	requestAnimationFrame(animate);
 	const delta = clock.getDelta();
 	if (mixer) mixer.update(delta);
+	if (webcamOn) mocap.applyIdle(delta);   // set leg targets before the rig solves
 	if (currentVrm) currentVrm.update(delta);
+	if (webcamOn) mocap.groundContact();    // plant feet after world matrices update
 	controls.update();
 	renderer.render(scene, camera);
 }

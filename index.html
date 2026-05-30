@@ -208,7 +208,14 @@
 		</div>
 		<div id="mocap-opts" hidden>
 			<label class="check"><input type="checkbox" id="opt-preview" checked> Camera preview</label>
-			<label class="check"><input type="checkbox" id="opt-legs"> Track legs (stand back, full body)</label>
+			<div class="field" style="margin:4px 0 6px">
+				<label for="opt-legs">Legs</label>
+				<select id="opt-legs">
+					<option value="off">Off — feet pinned (most stable)</option>
+					<option value="webcam">Webcam + ground contact (stand back, full body)</option>
+					<option value="idle">Idle — procedural weight-shift</option>
+				</select>
+			</div>
 			<div class="range-row">
 				<span class="rl">Smooth</span>
 				<input type="range" id="opt-resp" min="0.3" max="1.6" step="0.05" value="1">

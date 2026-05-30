@@ -23,8 +23,8 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 	let running = false;
 
 	const opts = {
-		trackLegs: false, // legs off by default -> feet stay planted
-		resp: 1,          // responsiveness multiplier (lower = smoother)
+		legsMode: 'off', // 'off' | 'webcam' | 'idle'
+		resp: 1,         // responsiveness multiplier (lower = smoother)
 		preview: true,
 	};
 
@@ -36,6 +36,7 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 
 	const _euler = new THREE.Euler();
 	const _quat = new THREE.Quaternion();
+	const _p = new THREE.Vector3();
 
 	function rigRotation(boneName, rotation = { x: 0, y: 0, z: 0 }, dampener = 1, lerpAmt = 0.3) {
 		const vrm = getVrm();
@@ -93,12 +94,55 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		rigRotation('leftUpperArm', riggedPose.LeftUpperArm, 1, 0.3);
 		rigRotation('leftLowerArm', riggedPose.LeftLowerArm, 1, 0.3);
 
-		if (opts.trackLegs) {
-			rigRotation('leftUpperLeg', riggedPose.LeftUpperLeg, 1, 0.3);
-			rigRotation('leftLowerLeg', riggedPose.LeftLowerLeg, 1, 0.3);
-			rigRotation('rightUpperLeg', riggedPose.RightUpperLeg, 1, 0.3);
-			rigRotation('rightLowerLeg', riggedPose.RightLowerLeg, 1, 0.3);
+		if (opts.legsMode === 'webcam') {
+			// Webcam legs are noisy — damp them a little harder than the arms.
+			rigRotation('leftUpperLeg', riggedPose.LeftUpperLeg, 1, 0.25);
+			rigRotation('leftLowerLeg', riggedPose.LeftLowerLeg, 1, 0.25);
+			rigRotation('rightUpperLeg', riggedPose.RightUpperLeg, 1, 0.25);
+			rigRotation('rightLowerLeg', riggedPose.RightLowerLeg, 1, 0.25);
 		}
+	}
+
+	// --- Per-frame leg helpers (called from the render loop) -----------------
+
+	const ANKLE_HEIGHT = 0.085; // ankle bone sits ~this far above the sole
+	let idleT = 0;
+
+	// Procedural idle for the lower body (hybrid mode): a gentle weight-shift
+	// + knee softening so the legs look alive while the webcam drives the torso.
+	function applyIdle(delta) {
+		if (opts.legsMode !== 'idle') return;
+		const vrm = getVrm();
+		if (!vrm) return;
+		idleT += delta;
+		const sway = Math.sin(idleT * 1.1);
+		const breathe = Math.sin(idleT * 1.1 * 2);
+		rigRotation('hips', { x: 0, y: 0, z: sway * 0.04 }, 1, 0.2);
+		rigRotation('spine', { x: breathe * 0.015, y: 0, z: 0 }, 1, 0.2);
+		// Alternating soft knee bend follows the weight shift.
+		rigRotation('leftUpperLeg', { x: Math.max(0, sway) * 0.10, y: 0, z: 0 }, 1, 0.2);
+		rigRotation('leftLowerLeg', { x: -Math.max(0, sway) * 0.16, y: 0, z: 0 }, 1, 0.2);
+		rigRotation('rightUpperLeg', { x: Math.max(0, -sway) * 0.10, y: 0, z: 0 }, 1, 0.2);
+		rigRotation('rightLowerLeg', { x: -Math.max(0, -sway) * 0.16, y: 0, z: 0 }, 1, 0.2);
+	}
+
+	// Ground contact: after the skeleton is solved, shift the whole avatar so the
+	// lower foot sits on the floor. Not full IK, but it kills the float/slide.
+	function groundContact() {
+		if (opts.legsMode === 'off') return;
+		const vrm = getVrm();
+		if (!vrm) return;
+		const footY = (name) => {
+			const n = vrm.humanoid?.getRawBoneNode(name);
+			if (!n) return Infinity;
+			n.getWorldPosition(_p);
+			return _p.y;
+		};
+		const lowest = Math.min(footY('leftFoot'), footY('rightFoot'));
+		if (!isFinite(lowest)) return;
+		// We want the lower ankle at ANKLE_HEIGHT above the floor.
+		const delta = (ANKLE_HEIGHT - lowest);
+		vrm.scene.position.y += delta * 0.25; // smoothed
 	}
 
 	function rigHand(riggedHand, side, wristFromPose) {
@@ -215,6 +259,7 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		if (holistic) { holistic.close?.(); holistic = null; }
 		if (guideCanvas) guideCanvas.getContext('2d').clearRect(0, 0, guideCanvas.width, guideCanvas.height);
 		const vrm = getVrm();
+		if (vrm) vrm.scene.position.y = 0; // undo any ground-contact shift
 		if (vrm?.expressionManager) {
 			['blink', 'aa', 'ih', 'ou', 'ee', 'oh', 'lookUp', 'lookDown', 'lookLeft', 'lookRight']
 				.forEach((n) => vrm.expressionManager.setValue(n, 0));
@@ -223,5 +268,5 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 
 	function setOptions(patch) { Object.assign(opts, patch); }
 
-	return { start, stop, setOptions, isRunning: () => running };
+	return { start, stop, setOptions, applyIdle, groundContact, isRunning: () => running };
 }
