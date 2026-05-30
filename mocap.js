@@ -74,9 +74,9 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 	function rigRotation(boneName, rot = { x: 0, y: 0, z: 0 }, dampener = 1) {
 		const node = getVrm()?.humanoid?.getNormalizedBoneNode(boneName);
 		if (!node) return;
-		const x = smooth(boneName + 'x', rot.x * dampener);
-		const y = smooth(boneName + 'y', rot.y * dampener);
-		const z = smooth(boneName + 'z', rot.z * dampener);
+		const x = smooth(boneName + 'x', (rot.x ?? 0) * dampener);
+		const y = smooth(boneName + 'y', (rot.y ?? 0) * dampener);
+		const z = smooth(boneName + 'z', (rot.z ?? 0) * dampener);
 		_euler.set(x, y, z, rot.rotationOrder || 'XYZ');
 		node.quaternion.setFromEuler(_euler);
 	}
@@ -136,7 +136,7 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 
 	// --- Body + hands (Kalidokit) -------------------------------------------
 
-	function rigPose(rp) {
+	function rigPose(rp, skipLegs) {
 		rigRotation('hips', rp.Hips.rotation, 0.25);
 		rigRotation('chest', rp.Spine, 0.3);
 		rigRotation('spine', rp.Spine, 0.45);
@@ -144,12 +144,24 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		rigRotation('rightLowerArm', rp.RightLowerArm);
 		rigRotation('leftUpperArm', rp.LeftUpperArm);
 		rigRotation('leftLowerArm', rp.LeftLowerArm);
-		if (opts.legsMode === 'webcam') {
+		if (opts.legsMode === 'webcam' && !skipLegs) {
 			rigRotation('leftUpperLeg', rp.LeftUpperLeg);
 			rigRotation('leftLowerLeg', rp.LeftLowerLeg);
 			rigRotation('rightUpperLeg', rp.RightUpperLeg);
 			rigRotation('rightLowerLeg', rp.RightLowerLeg);
 		}
+	}
+
+	// Procedural step cycle (used while the avatar is actually moving sideways):
+	// alternating knee-lift phased by distance travelled, so the feet step
+	// instead of footskating. Amplitude scales with speed; blends back to live
+	// leg tracking when you stop.
+	function applyStepLegs(phase, amp) {
+		const swing = Math.sin(phase);
+		rigRotation('leftUpperLeg', { x: Math.max(0, swing) * 0.55 * amp });
+		rigRotation('leftLowerLeg', { x: -Math.max(0, swing) * 0.8 * amp });
+		rigRotation('rightUpperLeg', { x: Math.max(0, -swing) * 0.55 * amp });
+		rigRotation('rightLowerLeg', { x: -Math.max(0, -swing) * 0.8 * amp });
 	}
 
 	function rigHand(rh, side, wristFromPose) {
@@ -202,7 +214,10 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 	// --- Per-frame leg helpers ----------------------------------------------
 	const ANKLE_HEIGHT = 0.085;
 	const FOLLOW_RANGE = 2.5; // world metres spanned across the camera frame
+	const STEP_FREQ = 5.5;    // step cycles per metre travelled (phased by distance -> no footskate)
+	const STEP_GAIN = 60;     // lateral speed -> step amplitude
 	let idleT = 0;
+	let rootXPrev = 0, rootSpeed = 0, stepPhase = 0;
 	function applyIdle(delta) {
 		if (opts.legsMode !== 'idle' || !getVrm()) return;
 		idleT += delta;
@@ -286,16 +301,31 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		let rp = null;
 		if (poseWorld && poseLm) {
 			rp = Kalidokit.Pose.solve(poseWorld, poseLm, { runtime: 'mediapipe', video });
-			if (rp) rigPose(rp);
-			if (!faceLm) rigHeadFromPose(poseLm); // head from pose when face tracking is off
-			// Horizontal follow: move the whole avatar left/right with the subject
-			// (image-plane x is reliable; depth is not, so we only track x).
+
+			// Horizontal follow + procedural walk. Image-plane x is reliable; depth
+			// is not, so we only translate x. When moving fast enough, the legs
+			// switch to a distance-phased step cycle so it walks instead of gliding.
+			let walking = false, stepAmp = 0;
 			if (opts.follow) {
 				const lh = poseLm[23], rh = poseLm[24]; // hip landmarks
-				if (lh && rh) vrm.scene.position.x = smooth('rootX', ((lh.x + rh.x) / 2 - 0.5) * FOLLOW_RANGE);
+				if (lh && rh) {
+					const newX = smooth('rootX', ((lh.x + rh.x) / 2 - 0.5) * FOLLOW_RANGE);
+					const dx = newX - rootXPrev;
+					rootXPrev = newX;
+					vrm.scene.position.x = newX;
+					rootSpeed = rootSpeed * 0.8 + Math.abs(dx) * 0.2; // smoothed lateral speed
+					stepAmp = clamp((rootSpeed - 0.0015) * STEP_GAIN, 0, 1);
+					walking = stepAmp > 0.05;
+					if (walking) stepPhase = (stepPhase + rootSpeed * STEP_FREQ) % (Math.PI * 2);
+				}
 			} else if (vrm.scene.position.x) {
 				vrm.scene.position.x *= 0.85; // ease back to center when off
+				rootSpeed = 0;
 			}
+
+			if (rp) rigPose(rp, walking);          // skip live legs while walking
+			if (walking) applyStepLegs(stepPhase, stepAmp);
+			if (!faceLm) rigHeadFromPose(poseLm);  // head from pose when face tracking is off
 		} else {
 			easeToRest(); // tracking lost -> relax toward rest instead of freezing
 		}
@@ -402,6 +432,7 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		if (video.srcObject) { video.srcObject.getTracks().forEach((t) => t.stop()); video.srcObject = null; }
 		if (video.src) { video.pause(); video.removeAttribute('src'); video.load(); }
 		filters.clear();
+		rootXPrev = 0; rootSpeed = 0; stepPhase = 0;
 		const vrm = getVrm();
 		if (vrm) { vrm.scene.position.y = 0; vrm.scene.position.x = 0; }
 		if (vrm?.expressionManager) {

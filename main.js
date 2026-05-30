@@ -337,6 +337,7 @@ let compCanvas = null;   // composite canvas: 3D scene + camera picture-in-pictu
 let compCtx = null;
 const guideEl = document.getElementById('guide');
 const recBtn = document.getElementById('rec-btn');
+const recFormat = document.getElementById('rec-format');
 recBtn.addEventListener('click', () => {
 	if (!recorder) {
 		compCanvas = document.createElement('canvas');
@@ -344,9 +345,11 @@ recBtn.addEventListener('click', () => {
 		compCanvas.height = renderer.domElement.height;
 		compCtx = compCanvas.getContext('2d');
 		const stream = compCanvas.captureStream(30);
-		// Prefer MP4 where supported (Safari), else WebM (Chrome/Firefox).
-		const mime = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
-			.find((m) => MediaRecorder.isTypeSupported(m));
+		// Format follows the selector; fall back to the other if unsupported.
+		const candidates = recFormat.value === 'mp4'
+			? ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm']
+			: ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+		const mime = candidates.find((m) => MediaRecorder.isTypeSupported(m));
 		if (!mime) { log('✗ recording not supported in this browser'); return; }
 		const ext = mime.includes('mp4') ? 'mp4' : 'webm';
 		recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12_000_000 });
