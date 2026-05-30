@@ -1,4 +1,11 @@
-# VRM × Mixamo playground
+# cam2avatar
+
+Real-time camera-to-3D-avatar motion capture, in the browser — webcam (or a
+video clip) drives a VRM / glTF / FBX character live, with recording and an
+objective eval harness. Also retargets Mixamo animations onto VRM avatars.
+
+---
+
 
 Retarget [Mixamo](https://www.mixamo.com) animations onto [VRM](https://vrm.dev) avatars,
 entirely in the browser. Built on [three.js](https://threejs.org) +
