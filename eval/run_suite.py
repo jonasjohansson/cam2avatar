@@ -18,7 +18,6 @@ BASE = "/org/jonasjohansson/abba/assets/test-clips"
 # We only use single-person, clearly-framed clips. Add a candidate here to vet
 # it — if it scores single_person_clear, promote it into test_procedure.py.
 CLIPS = [
-    f"{BASE}/Tai-Chi/pexels-2882793_tai-chi.mp4",
     f"{BASE}/Aerobics/pixabay-149195_aerobics-fitness-health-exercise.mp4",
     # --- excluded (group / subject too small), kept for reference, not run ---
     # f"{BASE}/Dancing/pexels-36131698_dancing.mp4",

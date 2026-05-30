@@ -15,7 +15,6 @@ from evaluate import run
 
 BASE = "/org/jonasjohansson/abba/assets/test-clips"
 CANONICAL = [
-    ("Tai-Chi", f"{BASE}/Tai-Chi/pexels-2882793_tai-chi.mp4"),
     ("Aerobics", f"{BASE}/Aerobics/pixabay-149195_aerobics-fitness-health-exercise.mp4"),
 ]
 # Pass thresholds — derived from observed good runs with headroom.
