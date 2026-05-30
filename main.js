@@ -27,7 +27,7 @@ const ANIMATIONS = [
 
 const wrap = document.getElementById('canvas-wrap');
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -196,6 +196,46 @@ playBtn.addEventListener('click', () => {
 	playing = !playing;
 	if (action) action.paused = !playing;
 	playBtn.textContent = playing ? 'Pause' : 'Play';
+});
+
+// Record the 3D canvas to a WebM (downloads on stop)
+let recorder = null;
+let recChunks = [];
+let recTimer = null;
+const recBtn = document.getElementById('rec-btn');
+recBtn.addEventListener('click', () => {
+	if (!recorder) {
+		const stream = renderer.domElement.captureStream(30);
+		const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
+			.find((m) => MediaRecorder.isTypeSupported(m));
+		if (!mime) { log('✗ recording not supported in this browser'); return; }
+		recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12_000_000 });
+		recChunks = [];
+		recorder.ondataavailable = (e) => { if (e.data.size) recChunks.push(e.data); };
+		recorder.onstop = () => {
+			const blob = new Blob(recChunks, { type: 'video/webm' });
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = `vrm-mixamo-${Date.now()}.webm`;
+			a.click();
+			setTimeout(() => URL.revokeObjectURL(url), 1000);
+			log(`saved recording (${(blob.size / 1e6).toFixed(1)} MB) → Downloads`);
+		};
+		recorder.start();
+		recBtn.classList.add('recording');
+		const t0 = Date.now();
+		recBtn.textContent = '■ Stop (0s)';
+		recTimer = setInterval(() => {
+			recBtn.textContent = `■ Stop (${Math.floor((Date.now() - t0) / 1000)}s)`;
+		}, 1000);
+	} else {
+		recorder.stop();
+		recorder = null;
+		clearInterval(recTimer);
+		recBtn.classList.remove('recording');
+		recBtn.textContent = '● Record';
+	}
 });
 
 // Reset camera
