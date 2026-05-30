@@ -569,6 +569,15 @@ optPlant.addEventListener('change', () => mocap.setOptions({ plantFeet: optPlant
 const optFollow = document.getElementById('opt-follow');
 optFollow.addEventListener('change', () => mocap.setOptions({ follow: optFollow.checked }));
 
+const optFullbody = document.getElementById('opt-fullbody');
+optFullbody.addEventListener('change', () => mocap.setOptions({ requireFullBody: optFullbody.checked }));
+const trackStatusEl = document.getElementById('track-status');
+const TRACK_UI = {
+	full: { color: '#22c55e', label: 'FULL BODY' },
+	partial: { color: '#f59e0b', label: 'SHOW LEGS' },
+	none: { color: '#ef4444', label: 'STEP IN' },
+};
+
 const optQuality = document.getElementById('opt-quality');
 optQuality.addEventListener('change', () => mocap.setOptions({ quality: optQuality.value }));
 
@@ -674,6 +683,12 @@ function animate() {
 	if (webcamOn) mocap.groundContact();    // plant feet after world matrices update
 	if (humanoidOverlay) updateHumanoidOverlay();
 	if (webcamOn && window.__mocapFps != null) fpsEl.textContent = `${window.__mocapFps} fps`;
+	if (webcamOn) {
+		const ui = TRACK_UI[window.__mocapLast?.track || 'none'];
+		previewEl.style.borderColor = ui.color;
+		trackStatusEl.textContent = ui.label;
+		trackStatusEl.style.background = ui.color;
+	}
 	controls.update();
 	renderer.render(scene, camera);
 	if (compCtx) drawComposite(); // composite the recording frame after render

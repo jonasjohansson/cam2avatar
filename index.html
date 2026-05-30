@@ -179,6 +179,18 @@
 			padding: 1px 5px;
 			border-radius: 3px;
 		}
+		#track-status {
+			position: absolute;
+			top: 4px; right: 6px;
+			z-index: 2;
+			font-family: var(--mono);
+			font-size: 11px;
+			font-weight: 700;
+			color: #fff;
+			padding: 1px 6px;
+			border-radius: 3px;
+		}
+		#preview { transition: border-color 0.2s; border-width: 3px; }
 		#preview video { display: none; } /* canvas already draws the frame */
 
 		details { margin-top: var(--gap); font-size: 12px; }
@@ -287,6 +299,7 @@
 			</div>
 			<label class="check"><input type="checkbox" id="opt-plant" checked> Plant feet on floor</label>
 			<label class="check"><input type="checkbox" id="opt-follow"> Follow movement (left/right)</label>
+			<label class="check"><input type="checkbox" id="opt-fullbody" checked> Require full body (only move when fully in frame)</label>
 			<div class="range-row">
 				<span class="rl">Smooth</span>
 				<input type="range" id="opt-resp" min="0.3" max="1.6" step="0.05" value="1">
@@ -327,6 +340,7 @@
 		<video id="webcam" playsinline muted></video>
 		<canvas id="guide" width="640" height="480"></canvas>
 		<span id="fps"></span>
+		<span id="track-status"></span>
 	</div>
 
 	<!-- Kalidokit (body + hand kinematics solver) as a window global -->

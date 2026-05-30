@@ -49,7 +49,7 @@ class OneEuro {
 
 export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 
-	const opts = { legsMode: 'off', resp: 1, preview: true, face: false, plantFeet: true, quality: 'full', mirror: false, follow: false };
+	const opts = { legsMode: 'off', resp: 1, preview: true, face: false, plantFeet: true, quality: 'full', mirror: false, follow: false, requireFullBody: true };
 	let mcanvas = null, mctx = null; // offscreen canvas for the mirrored frame
 	let pose = null, hand = null, face = null, fileset = null;
 	let running = false, rafId = 0;
@@ -221,6 +221,16 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		if (em) ['blink', 'blinkLeft', 'blinkRight', 'aa', 'ih', 'ou', 'ee', 'oh', 'happy', 'angry', 'sad', 'surprised']
 			.forEach((n) => { if (em.getExpression?.(n)) em.setValue(n, (em.getValue?.(n) || 0) * 0.85); });
 	}
+	// Ease only the BODY toward rest (keeps head/neck + face), used by the
+	// full-body gate when the whole person isn't in frame.
+	const BODY_REST = MANAGED.filter((n) => n !== 'neck');
+	function easeBodyToRest() {
+		const vrm = getVrm(); if (!vrm) return;
+		for (const name of BODY_REST) {
+			const node = vrm.humanoid?.getNormalizedBoneNode(name);
+			if (node) node.quaternion.slerp(_identity, 0.1);
+		}
+	}
 
 	// --- Per-frame leg helpers ----------------------------------------------
 	const ANKLE_HEIGHT = 0.085;
@@ -289,6 +299,12 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 			const idx = [25, 26, 27, 28];
 			legVis = idx.reduce((s, i) => s + (poseLm[i]?.visibility ?? 0), 0) / idx.length;
 		}
+		// Tracking quality: 'full' = whole person in frame (torso + both feet),
+		// 'partial' = torso only (legs out of frame), 'none' = no usable person.
+		const v = (i) => poseLm?.[i]?.visibility ?? 0;
+		const torso = !!poseLm && Math.min(v(11), v(12), v(23), v(24)) > 0.5;
+		const feet = !!poseLm && Math.min(v(27), v(28)) > 0.3;
+		const track = !poseLm ? 'none' : (torso && feet ? 'full' : (torso ? 'partial' : 'none'));
 		window.__mocapLast = {
 			face: !!faceR?.faceLandmarks?.length,
 			pose: !!poseLm,
@@ -296,6 +312,7 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 			lhand: !!(handR?.landmarks?.length),
 			rhand: !!(handR?.landmarks?.length > 1),
 			legVis,
+			track,
 			ts: performance.now(),
 		};
 
@@ -308,9 +325,10 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		const bs = faceR?.faceBlendshapes?.[0]?.categories;
 		if (bs) applyBlendshapes(bs);
 
-		// Body
+		// Body — only drive it when the FULL person is in frame (don't move on
+		// partial data). Head/face keep tracking; the body eases to rest.
 		let rp = null;
-		if (poseWorld && poseLm) {
+		if (poseWorld && poseLm && (!opts.requireFullBody || track === 'full')) {
 			rp = Kalidokit.Pose.solve(poseWorld, poseLm, { runtime: 'mediapipe', video });
 
 			// Horizontal follow + procedural walk. Image-plane x is reliable; depth
@@ -346,10 +364,12 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 
 			if (rp) rigPose(rp, walking, poseLm);  // skip live legs while walking; gate by confidence
 			if (walking) applyStepLegs(stepPhase, stepAmp);
-			if (!faceLm) rigHeadFromPose(poseLm);  // head from pose when face tracking is off
+		} else if (poseLm) {
+			easeBodyToRest(); // full body not in frame -> relax body, keep head/face
 		} else {
-			easeToRest(); // tracking lost -> relax toward rest instead of freezing
+			easeToRest();     // no person -> full relax
 		}
+		if (!faceLm && poseLm) rigHeadFromPose(poseLm); // head tracks even when body is gated
 		// Hands (handedness tells which side)
 		if (handR?.landmarks && rp) {
 			handR.landmarks.forEach((pts, i) => {
