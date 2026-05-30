@@ -67,7 +67,10 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 	function smooth(key, val) {
 		let f = filters.get(key);
 		if (!f) { f = new OneEuro(); filters.set(key, f); }
-		f.minCutoff = 1.0 * opts.resp; // resp slider -> snappier/smoother
+		// Higher minCutoff = less lag at rest; higher beta = opens up during motion
+		// so fast moves aren't lagged or shaved down. resp slider scales both.
+		f.minCutoff = 1.7 * opts.resp;
+		f.beta = 0.25 * opts.resp;
 		return f.filter(val, performance.now());
 	}
 
@@ -151,14 +154,15 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		// limbs and bad-depth guesses). MediaPipe pose indices: elbows 13/14,
 		// wrists 15/16, knees 25/26, ankles 27/28.
 		const vis = (i) => lm?.[i]?.visibility ?? 1;
-		if ((vis(14) + vis(16)) / 2 > 0.5) { rigRotation('rightUpperArm', rp.RightUpperArm); rigRotation('rightLowerArm', rp.RightLowerArm); }
+		const G = 1.15; // amplify limb range a touch (Kalidokit under-reaches)
+		if ((vis(14) + vis(16)) / 2 > 0.5) { rigRotation('rightUpperArm', rp.RightUpperArm, G); rigRotation('rightLowerArm', rp.RightLowerArm, G); }
 		else { easeBone('rightUpperArm'); easeBone('rightLowerArm'); }
-		if ((vis(13) + vis(15)) / 2 > 0.5) { rigRotation('leftUpperArm', rp.LeftUpperArm); rigRotation('leftLowerArm', rp.LeftLowerArm); }
+		if ((vis(13) + vis(15)) / 2 > 0.5) { rigRotation('leftUpperArm', rp.LeftUpperArm, G); rigRotation('leftLowerArm', rp.LeftLowerArm, G); }
 		else { easeBone('leftUpperArm'); easeBone('leftLowerArm'); }
 		if (opts.legsMode === 'webcam' && !skipLegs) {
-			if ((vis(25) + vis(27)) / 2 > 0.4) { rigRotation('leftUpperLeg', rp.LeftUpperLeg); rigRotation('leftLowerLeg', rp.LeftLowerLeg); }
+			if ((vis(25) + vis(27)) / 2 > 0.4) { rigRotation('leftUpperLeg', rp.LeftUpperLeg, G); rigRotation('leftLowerLeg', rp.LeftLowerLeg, G); }
 			else { easeBone('leftUpperLeg'); easeBone('leftLowerLeg'); }
-			if ((vis(26) + vis(28)) / 2 > 0.4) { rigRotation('rightUpperLeg', rp.RightUpperLeg); rigRotation('rightLowerLeg', rp.RightLowerLeg); }
+			if ((vis(26) + vis(28)) / 2 > 0.4) { rigRotation('rightUpperLeg', rp.RightUpperLeg, G); rigRotation('rightLowerLeg', rp.RightLowerLeg, G); }
 			else { easeBone('rightUpperLeg'); easeBone('rightLowerLeg'); }
 		}
 	}
