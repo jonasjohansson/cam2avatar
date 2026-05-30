@@ -107,7 +107,7 @@ function loadCharacter(entry) {
 
 // Horizontally flip the whole character (works in every mode), preserving the
 // scale magnitude set during normalization.
-let avatarMirrored = false;
+let avatarMirrored = true;
 function applyAvatarMirror() {
 	const root = currentVrm?.scene || currentGltf?.scene;
 	if (root) root.scale.x = (avatarMirrored ? -1 : 1) * Math.abs(root.scale.x);
