@@ -10,9 +10,9 @@ import { createMocap } from './mocap.js';
 const CDN = 'https://cdn.jsdelivr.net/gh';
 
 const CHARACTERS = [
+	{ name: 'VRoid — Sample C',      url: `${CDN}/madjin/vrm-samples@master/vroid/stable/AvatarSample_C.vrm` },
 	{ name: 'VRoid — Sample A',      url: `${CDN}/madjin/vrm-samples@master/vroid/stable/AvatarSample_A.vrm` },
 	{ name: 'VRoid — Sample B',      url: `${CDN}/madjin/vrm-samples@master/vroid/stable/AvatarSample_B.vrm` },
-	{ name: 'VRoid — Sample C',      url: `${CDN}/madjin/vrm-samples@master/vroid/stable/AvatarSample_C.vrm` },
 	{ name: 'VRoid — Vita',          url: `${CDN}/madjin/vrm-samples@master/vroid/beta/Vita.vrm` },
 	{ name: 'VRoid — Sendagaya Shino', url: `${CDN}/madjin/vrm-samples@master/vroid/beta/Sendagaya_Shino.vrm` },
 	{ name: 'pixiv — VRM 1.0 robot', url: `${CDN}/pixiv/three-vrm@dev/packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm` },
@@ -280,6 +280,10 @@ webcamBtn.addEventListener('click', async () => {
 			previewEl.hidden = !optPreview.checked;
 			optMirror.checked = isCam;              // mirror live cam by default, clips as-is
 			mocap.setOptions({ mirror: isCam });
+			if (isCam) {                            // live webcam -> track legs + ground contact by default
+				optLegs.value = 'webcam';
+				mocap.setOptions({ legsMode: 'webcam' });
+			}
 			// Webcam drives the rig now — stop the Mixamo clip.
 			if (mixer) mixer.stopAllAction();
 			playing = false;
