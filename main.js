@@ -417,10 +417,9 @@ webcamBtn.addEventListener('click', async () => {
 			previewEl.hidden = !optPreview.checked;
 			optMirror.checked = isCam;              // mirror live cam by default, clips as-is
 			mocap.setOptions({ mirror: isCam });
-			if (isCam) {                            // live webcam -> track legs + ground contact by default
-				optLegs.value = 'webcam';
-				mocap.setOptions({ legsMode: 'webcam' });
-			}
+			// Track legs + ground contact by default for any source (webcam or clip).
+			optLegs.value = 'webcam';
+			mocap.setOptions({ legsMode: 'webcam' });
 			// Webcam drives the rig now — stop the Mixamo clip.
 			if (mixer) mixer.stopAllAction();
 			playing = false;
