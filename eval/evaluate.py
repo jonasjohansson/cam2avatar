@@ -11,7 +11,7 @@ and saves periodic screenshots.
 
 Usage:
   python3 eval/evaluate.py <clip> [legsMode] [seconds]
-    clip     : a keyword that matches a source dropdown label (e.g. Tai-Chi),
+    clip     : a keyword that matches a source dropdown label (e.g. Aerobics),
                OR an absolute web path to a video (e.g. /org/.../foo.mp4)
     legsMode : off | webcam | idle   (default webcam)
     seconds  : capture duration      (default 12)
@@ -141,7 +141,7 @@ def run(clip, legs="webcam", secs=12):
 
 
 if __name__ == "__main__":
-    clip = sys.argv[1] if len(sys.argv) > 1 else "Tai-Chi"
+    clip = sys.argv[1] if len(sys.argv) > 1 else "Aerobics"
     legs = sys.argv[2] if len(sys.argv) > 2 else "webcam"
     secs = int(sys.argv[3]) if len(sys.argv) > 3 else 12
     report = run(clip, legs, secs)
