@@ -21,13 +21,8 @@ const CHARACTERS = [
 	{ name: 'Avatar Orion',          url: `${CDN}/madjin/vrm-samples@master/Avatar_Orion.vrm` },
 	{ name: 'Seed-san',              url: `${CDN}/madjin/vrm-samples@master/Seed-san/vrm/Seed-san.vrm` },
 	{ name: 'pixiv — VRM 1.0 robot', url: `${CDN}/pixiv/three-vrm@dev/packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm` },
-	// three.js glTF characters (non-VRM). Their rest poses don't match the raw
-	// Mixamo bind pose, so they use their own built-in animations. Webcam mocap
-	// is VRM-only.
-	{ name: 'three.js — Xbot',     url: `${CDN}/mrdoob/three.js@r180/examples/models/gltf/Xbot.glb`, type: 'gltf', builtin: 'run' },
-	{ name: 'three.js — Soldier',  url: `${CDN}/mrdoob/three.js@r180/examples/models/gltf/Soldier.glb`, type: 'gltf', builtin: 'Walk', faceY: 180 },
-	{ name: 'three.js — Michelle', url: `${CDN}/mrdoob/three.js@r180/examples/models/gltf/Michelle.glb`, type: 'gltf', builtin: 'SambaDance' },
-	{ name: 'three.js — Robot',    url: `${CDN}/mrdoob/three.js@r180/examples/models/gltf/RobotExpressive/RobotExpressive.glb`, type: 'gltf', builtin: 'Dance' },
+	// (glTF/FBX preset characters removed — they only play built-in animations and
+	// can't be mocap-driven. You can still drag-drop your own .glb/.fbx.)
 ];
 
 const ANIMATIONS = [
