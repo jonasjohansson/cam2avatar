@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { loadMixamoAnimation } from './loadMixamoAnimation.js';
 import { createMocap } from './mocap.js';
@@ -148,41 +149,82 @@ async function loadVRM(src, label) {
 	}
 }
 
+// Shared setup for any non-VRM rigged character (glTF or FBX): normalize and
+// drive it with its own built-in animations.
+function setupObjectCharacter(root, animations, entry) {
+	// Auto-detect rig (for naming / future use), else trust the entry.
+	const hasMixamo = !!root.getObjectByName('mixamorigHips');
+	const rig = entry.rig ?? (hasMixamo ? 'mixamorig' : 'generic');
+	// Normalize: face camera, scale to ~1.6 m, drop feet to floor, center on x/z.
+	if (entry.faceY) root.rotation.y = (entry.faceY * Math.PI) / 180;
+	root.updateMatrixWorld(true);
+	const size = new THREE.Vector3();
+	new THREE.Box3().setFromObject(root).getSize(size);
+	root.scale.setScalar(size.y > 1e-3 ? 1.6 / size.y : 1);
+	root.updateMatrixWorld(true);
+	const b = new THREE.Box3().setFromObject(root);
+	root.position.x -= (b.min.x + b.max.x) / 2;
+	root.position.z -= (b.min.z + b.max.z) / 2;
+	root.position.y -= b.min.y;
+	root.traverse((o) => { o.frustumCulled = false; });
+
+	disposeCurrent();
+	scene.add(root);
+	const builtin = {};
+	(animations || []).forEach((a) => { builtin[a.name] = a; });
+	currentGltf = { scene: root, rig, builtin, builtinDefault: entry.builtin, name: entry.name };
+
+	refreshSkeleton();
+	applyAvatarMirror();
+	const n = Object.keys(builtin).length;
+	log(`character ready: ${entry.name}  (${rig} rig, ${n} animation${n === 1 ? '' : 's'})`);
+	if (currentAnim) applyAnimation();
+}
+
 async function loadGltf(entry, srcOverride) {
 	log(`loading character: ${entry.name}…`);
 	try {
 		const gltf = await plainGltfLoader.loadAsync(srcOverride ?? entry.url);
-		const root = gltf.scene;
-		// Auto-detect rig for dropped files, else trust the entry.
-		const hasMixamo = !!root.getObjectByName('mixamorigHips');
-		const rig = entry.rig ?? (hasMixamo ? 'mixamorig' : 'unknown');
-		// Normalize size + placement (glTF chars vary wildly in scale/origin):
-		// face the camera, scale to ~1.6 m, drop feet to the floor, center on x/z.
-		if (entry.faceY) root.rotation.y = (entry.faceY * Math.PI) / 180;
-		root.updateMatrixWorld(true);
-		const size = new THREE.Vector3();
-		new THREE.Box3().setFromObject(root).getSize(size);
-		root.scale.setScalar(size.y > 1e-3 ? 1.6 / size.y : 1);
-		root.updateMatrixWorld(true);
-		const b = new THREE.Box3().setFromObject(root);
-		root.position.x -= (b.min.x + b.max.x) / 2;
-		root.position.z -= (b.min.z + b.max.z) / 2;
-		root.position.y -= b.min.y;
-		root.traverse((o) => { o.frustumCulled = false; });
-
-		disposeCurrent();
-		scene.add(root);
-		const builtin = {};
-		gltf.animations.forEach((a) => { builtin[a.name] = a; });
-		currentGltf = { scene: root, rig, builtin, builtinDefault: entry.builtin, name: entry.name };
-
-		refreshSkeleton();
-		applyAvatarMirror();
-		log(`character ready: ${entry.name}  (glTF, ${rig} rig)`);
-		if (currentAnim) await applyAnimation();
+		setupObjectCharacter(gltf.scene, gltf.animations, entry);
 	} catch (err) {
 		console.error(err);
 		log(`✗ failed to load character\n${err.message ?? err}`);
+	}
+}
+
+async function loadFbxCharacter(url, name) {
+	log(`loading character: ${name}…`);
+	try {
+		const asset = await new FBXLoader().loadAsync(url);
+		setupObjectCharacter(asset, asset.animations, { name });
+	} catch (err) {
+		console.error(err);
+		log(`✗ failed to load character\n${err.message ?? err}`);
+	}
+}
+
+// A dropped/picked FBX may be a rigged CHARACTER (has a mesh) or a Mixamo
+// ANIMATION (skeleton only). Decide by whether it carries skinned geometry.
+function fbxHasMesh(obj) {
+	let has = false;
+	obj.traverse((o) => { if ((o.isMesh || o.isSkinnedMesh) && o.geometry?.attributes?.position?.count > 0) has = true; });
+	return has;
+}
+async function loadFbxFile(file) {
+	const url = URL.createObjectURL(file);
+	try {
+		const asset = await new FBXLoader().loadAsync(url);
+		if (fbxHasMesh(asset)) {
+			setupObjectCharacter(asset, asset.animations, { name: file.name });
+		} else {
+			currentAnim = { file, label: file.name }; // skeleton-only -> animate current VRM
+			applyAnimation();
+		}
+	} catch (err) {
+		console.error(err);
+		log(`✗ ${err.message ?? err}`);
+	} finally {
+		URL.revokeObjectURL(url);
 	}
 }
 
@@ -251,7 +293,13 @@ animSelect.addEventListener('change', () => {
 const charFile = document.getElementById('char-file');
 document.getElementById('char-file-btn').addEventListener('click', () => charFile.click());
 charFile.addEventListener('change', () => {
-	if (charFile.files[0]) loadVRMFile(charFile.files[0]);
+	const f = charFile.files[0];
+	if (!f) return;
+	const ext = f.name.split('.').pop().toLowerCase();
+	if (ext === 'vrm') loadVRMFile(f);
+	else if (ext === 'glb' || ext === 'gltf') loadGltfFile(f);
+	else if (ext === 'fbx') loadFbxFile(f);
+	else log(`unsupported character file: ${f.name}`);
 });
 
 const animFile = document.getElementById('anim-file');
@@ -423,26 +471,65 @@ optMirror.addEventListener('change', () => mocap.setOptions({ mirror: optMirror.
 
 const fpsEl = document.getElementById('fps');
 
-// Skeleton overlay — draws the VRM's actual bones on top of the mesh so you can
-// see exactly which bones are (or aren't) being driven.
-let skeletonHelper = null;
+// Skeleton overlay — draws the bones on top of the mesh to verify tracking.
+// For VRM we draw ONLY the humanoid bones (SkeletonHelper would also draw the
+// spring/cloth/accessory bones, which fan out as noise near hips/knees).
+let skeletonHelper = null;      // glTF/FBX (SkeletonHelper)
+let humanoidOverlay = null;     // VRM (custom, humanoid bones only)
 const optSkel = document.getElementById('opt-skeleton');
+const _ov = new THREE.Vector3();
+
+// Parent -> child links across the standard VRM humanoid.
+const HUMANOID_LINKS = [
+	['hips', 'spine'], ['spine', 'chest'], ['chest', 'neck'], ['neck', 'head'],
+	['chest', 'leftUpperArm'], ['leftUpperArm', 'leftLowerArm'], ['leftLowerArm', 'leftHand'],
+	['chest', 'rightUpperArm'], ['rightUpperArm', 'rightLowerArm'], ['rightLowerArm', 'rightHand'],
+	['hips', 'leftUpperLeg'], ['leftUpperLeg', 'leftLowerLeg'], ['leftLowerLeg', 'leftFoot'], ['leftFoot', 'leftToes'],
+	['hips', 'rightUpperLeg'], ['rightUpperLeg', 'rightLowerLeg'], ['rightLowerLeg', 'rightFoot'], ['rightFoot', 'rightToes'],
+];
+
+function clearOverlays() {
+	if (skeletonHelper) { scene.remove(skeletonHelper); skeletonHelper.geometry?.dispose(); skeletonHelper.material?.dispose(); skeletonHelper = null; }
+	if (humanoidOverlay) { scene.remove(humanoidOverlay.lines); humanoidOverlay.lines.geometry.dispose(); humanoidOverlay.lines.material.dispose(); humanoidOverlay = null; }
+}
+
 function refreshSkeleton() {
-	if (skeletonHelper) {
-		scene.remove(skeletonHelper);
-		skeletonHelper.geometry?.dispose();
-		skeletonHelper.material?.dispose();
-		skeletonHelper = null;
-	}
-	const root = currentVrm?.scene || currentGltf?.scene;
-	if (optSkel.checked && root) {
-		skeletonHelper = new THREE.SkeletonHelper(root);
-		skeletonHelper.material.depthTest = false; // always visible, even through the mesh
+	clearOverlays();
+	if (!optSkel.checked) return;
+	if (currentVrm) {
+		const pairs = [];
+		for (const [a, b] of HUMANOID_LINKS) {
+			const na = currentVrm.humanoid.getRawBoneNode(a);
+			const nb = currentVrm.humanoid.getRawBoneNode(b);
+			if (na && nb) pairs.push([na, nb]);
+		}
+		const positions = new Float32Array(pairs.length * 6);
+		const geom = new THREE.BufferGeometry();
+		geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+		const mat = new THREE.LineBasicMaterial({ color: 0x22d3ee, depthTest: false, depthWrite: false, transparent: true });
+		const lines = new THREE.LineSegments(geom, mat);
+		lines.renderOrder = 999;
+		lines.frustumCulled = false;
+		humanoidOverlay = { lines, pairs, positions };
+		updateHumanoidOverlay();
+		scene.add(lines);
+	} else if (currentGltf) {
+		skeletonHelper = new THREE.SkeletonHelper(currentGltf.scene);
+		skeletonHelper.material.depthTest = false;
 		skeletonHelper.material.depthWrite = false;
 		skeletonHelper.material.transparent = true;
 		skeletonHelper.renderOrder = 999;
 		scene.add(skeletonHelper);
 	}
+}
+function updateHumanoidOverlay() {
+	if (!humanoidOverlay) return;
+	const { pairs, positions, lines } = humanoidOverlay;
+	for (let i = 0; i < pairs.length; i++) {
+		pairs[i][0].getWorldPosition(_ov); positions[i * 6] = _ov.x; positions[i * 6 + 1] = _ov.y; positions[i * 6 + 2] = _ov.z;
+		pairs[i][1].getWorldPosition(_ov); positions[i * 6 + 3] = _ov.x; positions[i * 6 + 4] = _ov.y; positions[i * 6 + 5] = _ov.z;
+	}
+	lines.geometry.attributes.position.needsUpdate = true;
 }
 optSkel.addEventListener('change', refreshSkeleton);
 
@@ -465,7 +552,7 @@ window.addEventListener('drop', (e) => {
 		const ext = file.name.split('.').pop().toLowerCase();
 		if (ext === 'vrm') loadVRMFile(file);
 		else if (ext === 'glb' || ext === 'gltf') loadGltfFile(file);
-		else if (ext === 'fbx') loadAnimFile(file);
+		else if (ext === 'fbx') loadFbxFile(file); // character (has mesh) or animation (skeleton only)
 		else log(`unsupported file: ${file.name}`);
 	}
 });
@@ -479,6 +566,7 @@ function animate() {
 	if (webcamOn) mocap.applyIdle(delta);   // set leg targets before the rig solves
 	if (currentVrm) currentVrm.update(delta);
 	if (webcamOn) mocap.groundContact();    // plant feet after world matrices update
+	if (humanoidOverlay) updateHumanoidOverlay();
 	if (webcamOn && window.__mocapFps != null) fpsEl.textContent = `${window.__mocapFps} fps`;
 	controls.update();
 	renderer.render(scene, camera);
