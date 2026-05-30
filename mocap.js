@@ -217,7 +217,7 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 	const STEP_FREQ = 5.5;    // step cycles per metre travelled (phased by distance -> no footskate)
 	const STEP_GAIN = 60;     // lateral speed -> step amplitude
 	let idleT = 0;
-	let rootXPrev = 0, rootSpeed = 0, stepPhase = 0;
+	let rootXPrev = 0, rootSpeed = 0, stepPhase = 0, rootXHold = 0, prevSin = 0;
 	function applyIdle(delta) {
 		if (opts.legsMode !== 'idle' || !getVrm()) return;
 		idleT += delta;
@@ -312,11 +312,21 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 					const newX = smooth('rootX', ((lh.x + rh.x) / 2 - 0.5) * FOLLOW_RANGE);
 					const dx = newX - rootXPrev;
 					rootXPrev = newX;
-					vrm.scene.position.x = newX;
 					rootSpeed = rootSpeed * 0.8 + Math.abs(dx) * 0.2; // smoothed lateral speed
 					stepAmp = clamp((rootSpeed - 0.0015) * STEP_GAIN, 0, 1);
 					walking = stepAmp > 0.05;
-					if (walking) stepPhase = (stepPhase + rootSpeed * STEP_FREQ) % (Math.PI * 2);
+					if (walking) {
+						stepPhase = (stepPhase + rootSpeed * STEP_FREQ) % (Math.PI * 2);
+						// Hold the body between footfalls, advance at each footfall, so the
+						// planted foot doesn't drag (kills most of the skate).
+						const sinNow = Math.sin(stepPhase);
+						if ((prevSin <= 0) !== (sinNow <= 0)) rootXHold = newX; // footfall -> new hold target
+						prevSin = sinNow;
+						vrm.scene.position.x += (rootXHold - vrm.scene.position.x) * 0.5;
+					} else {
+						vrm.scene.position.x = newX; // smooth follow when standing
+						rootXHold = newX;
+					}
 				}
 			} else if (vrm.scene.position.x) {
 				vrm.scene.position.x *= 0.85; // ease back to center when off
@@ -432,7 +442,7 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		if (video.srcObject) { video.srcObject.getTracks().forEach((t) => t.stop()); video.srcObject = null; }
 		if (video.src) { video.pause(); video.removeAttribute('src'); video.load(); }
 		filters.clear();
-		rootXPrev = 0; rootSpeed = 0; stepPhase = 0;
+		rootXPrev = 0; rootSpeed = 0; stepPhase = 0; rootXHold = 0; prevSin = 0;
 		const vrm = getVrm();
 		if (vrm) { vrm.scene.position.y = 0; vrm.scene.position.x = 0; }
 		if (vrm?.expressionManager) {
