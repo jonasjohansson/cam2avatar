@@ -383,11 +383,42 @@ recBtn.addEventListener('click', () => {
 	}
 });
 
+// Current settings as text lines, baked into the recording so a shared clip
+// carries its own config.
+function settingsLines() {
+	const sel = (el) => el.options[el.selectedIndex]?.text ?? '';
+	const on = (b) => (b ? 'on' : 'off');
+	const lines = [`char: ${sel(charSelect)}${optMirrorAvatar.checked ? '  (mirrored)' : ''}`];
+	if (webcamOn) {
+		lines.push(`source: ${sel(sourceSelect)}`);
+		lines.push(`legs: ${optLegs.value}   follow: ${on(optFollow.checked)}`);
+		lines.push(`plant: ${on(optPlant.checked)}   mirror: ${on(optMirror.checked)}`);
+		lines.push(`quality: ${optQuality.value}   face: ${on(optFace.checked)}   smooth: ${optResp.value}`);
+	} else {
+		lines.push(`anim: ${sel(animSelect)}   speed: ${speedEl.value}x`);
+	}
+	return lines;
+}
+function drawSettingsOverlay(W) {
+	const lines = settingsLines();
+	const fs = Math.max(12, Math.round(W * 0.013));
+	compCtx.font = `${fs}px monospace`;
+	compCtx.textBaseline = 'top';
+	const pad = Math.round(fs * 0.7), lh = Math.round(fs * 1.45);
+	let maxw = 0;
+	for (const t of lines) maxw = Math.max(maxw, compCtx.measureText(t).width);
+	compCtx.fillStyle = 'rgba(0,0,0,0.55)';
+	compCtx.fillRect(pad, pad, maxw + pad * 2, lh * lines.length + pad * 1.5);
+	compCtx.fillStyle = '#9be7a0';
+	lines.forEach((t, i) => compCtx.fillText(t, pad * 2, Math.round(pad * 1.25) + i * lh));
+}
+
 // Paint the composite frame (called from the render loop after renderer.render).
 function drawComposite() {
 	if (!compCtx) return;
 	const W = compCanvas.width, H = compCanvas.height;
 	compCtx.drawImage(renderer.domElement, 0, 0, W, H);
+	drawSettingsOverlay(W);
 	// Camera picture-in-picture (with landmark overlay) during tracking.
 	if (webcamOn && !previewEl.hidden && guideEl.width) {
 		const pw = Math.round(W * 0.3);
