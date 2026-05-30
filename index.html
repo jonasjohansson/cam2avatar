@@ -232,6 +232,15 @@
 		<div class="field">
 			<label class="check"><input type="checkbox" id="opt-skeleton"> Skeleton overlay (verify tracking)</label>
 			<label class="check"><input type="checkbox" id="opt-mirror-avatar" checked> Mirror avatar (flip left/right)</label>
+			<label class="check"><input type="checkbox" id="opt-grid" checked> Floor grid</label>
+		</div>
+
+		<div class="field">
+			<label>Background</label>
+			<div class="row">
+				<input type="color" id="bg-color" value="#dfe3ea" style="flex:0 0 40px; padding:2px; height:30px">
+				<label class="check" style="flex:1"><input type="checkbox" id="bg-transparent"> Transparent</label>
+			</div>
 		</div>
 
 		<div class="field">
@@ -240,6 +249,18 @@
 				<option value="camera">Webcam (live)</option>
 				<option value="assets/clips/aerobics.mp4">Test: Aerobics (single person)</option>
 			</select>
+		</div>
+		<div class="field" id="cam-opts">
+			<label for="cam-device">Camera</label>
+			<select id="cam-device"><option value="">Default camera</option></select>
+			<div class="range-row" style="margin-top:4px">
+				<span class="rl">Res</span>
+				<select id="cam-res">
+					<option value="640x480">480p</option>
+					<option value="1280x720" selected>720p</option>
+					<option value="1920x1080">1080p</option>
+				</select>
+			</div>
 		</div>
 		<div class="field">
 			<button class="secondary" id="webcam-btn">● Start tracking</button>

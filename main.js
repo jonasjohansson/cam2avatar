@@ -448,6 +448,19 @@ speedEl.addEventListener('input', () => {
 	if (action) action.timeScale = speed;
 });
 
+// Scene: background + grid
+const bgColor = document.getElementById('bg-color');
+const bgTransparent = document.getElementById('bg-transparent');
+const optGrid = document.getElementById('opt-grid');
+function applyBackground() {
+	if (bgTransparent.checked) { scene.background = null; renderer.setClearColor(0x000000, 0); }
+	else { scene.background = new THREE.Color(bgColor.value); renderer.setClearColor(0x000000, 1); }
+}
+bgColor.addEventListener('input', applyBackground);
+bgTransparent.addEventListener('change', applyBackground);
+optGrid.addEventListener('change', () => { grid.visible = optGrid.checked; });
+applyBackground();
+
 // Webcam mocap toggle
 const previewEl = document.getElementById('preview');
 const mocapOptsEl = document.getElementById('mocap-opts');
@@ -461,6 +474,30 @@ const mocap = createMocap({
 const webcamBtn = document.getElementById('webcam-btn');
 const sourceSelect = document.getElementById('source-select');
 let webcamOn = false;
+
+// Camera device + resolution selection
+const camOpts = document.getElementById('cam-opts');
+const camDevice = document.getElementById('cam-device');
+const camRes = document.getElementById('cam-res');
+async function populateCameras() {
+	try {
+		const devs = await navigator.mediaDevices.enumerateDevices();
+		const cams = devs.filter((d) => d.kind === 'videoinput');
+		const cur = camDevice.value;
+		camDevice.innerHTML = '<option value="">Default camera</option>';
+		cams.forEach((d, i) => {
+			const o = document.createElement('option');
+			o.value = d.deviceId; o.textContent = d.label || `Camera ${i + 1}`;
+			camDevice.appendChild(o);
+		});
+		if (cur) camDevice.value = cur;
+	} catch (e) { /* */ }
+}
+populateCameras();
+navigator.mediaDevices?.addEventListener?.('devicechange', populateCameras);
+const updateCamOpts = () => { camOpts.hidden = sourceSelect.value !== 'camera'; };
+sourceSelect.addEventListener('change', updateCamOpts);
+updateCamOpts();
 webcamBtn.addEventListener('click', async () => {
 	if (!webcamOn) {
 		if (!currentVrm) {
@@ -471,7 +508,13 @@ webcamBtn.addEventListener('click', async () => {
 			const src = sourceSelect.value;
 			const isCam = src === 'camera';
 			webcamBtn.textContent = isCam ? '○ starting camera…' : '○ loading clip…';
-			await mocap.start(isCam ? { type: 'camera' } : { type: 'video', url: src });
+			let startSrc = { type: 'video', url: src };
+			if (isCam) {
+				const [w, h] = camRes.value.split('x').map(Number);
+				startSrc = { type: 'camera', deviceId: camDevice.value || undefined, width: w, height: h };
+			}
+			await mocap.start(startSrc);
+			if (isCam) populateCameras(); // labels available once permission granted
 			webcamOn = true;
 			webcamBtn.textContent = '■ Stop tracking';
 			mocapOptsEl.hidden = false;

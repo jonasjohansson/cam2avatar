@@ -136,19 +136,30 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 
 	// --- Body + hands (Kalidokit) -------------------------------------------
 
-	function rigPose(rp, skipLegs) {
+	// Ease one bone toward rest (used for confidence gating).
+	function easeBone(name, amt = 0.12) {
+		const n = getVrm()?.humanoid?.getNormalizedBoneNode(name);
+		if (n) n.quaternion.slerp(_identity, amt);
+	}
+
+	function rigPose(rp, skipLegs, lm) {
 		rigRotation('hips', rp.Hips.rotation, 0.25);
 		rigRotation('chest', rp.Spine, 0.3);
 		rigRotation('spine', rp.Spine, 0.45);
-		rigRotation('rightUpperArm', rp.RightUpperArm);
-		rigRotation('rightLowerArm', rp.RightLowerArm);
-		rigRotation('leftUpperArm', rp.LeftUpperArm);
-		rigRotation('leftLowerArm', rp.LeftLowerArm);
+		// Per-limb confidence gating: drive a limb only when its landmarks are
+		// clearly visible, else ease it to rest (kills flail on occluded/out-of-frame
+		// limbs and bad-depth guesses). MediaPipe pose indices: elbows 13/14,
+		// wrists 15/16, knees 25/26, ankles 27/28.
+		const vis = (i) => lm?.[i]?.visibility ?? 1;
+		if ((vis(14) + vis(16)) / 2 > 0.5) { rigRotation('rightUpperArm', rp.RightUpperArm); rigRotation('rightLowerArm', rp.RightLowerArm); }
+		else { easeBone('rightUpperArm'); easeBone('rightLowerArm'); }
+		if ((vis(13) + vis(15)) / 2 > 0.5) { rigRotation('leftUpperArm', rp.LeftUpperArm); rigRotation('leftLowerArm', rp.LeftLowerArm); }
+		else { easeBone('leftUpperArm'); easeBone('leftLowerArm'); }
 		if (opts.legsMode === 'webcam' && !skipLegs) {
-			rigRotation('leftUpperLeg', rp.LeftUpperLeg);
-			rigRotation('leftLowerLeg', rp.LeftLowerLeg);
-			rigRotation('rightUpperLeg', rp.RightUpperLeg);
-			rigRotation('rightLowerLeg', rp.RightLowerLeg);
+			if ((vis(25) + vis(27)) / 2 > 0.4) { rigRotation('leftUpperLeg', rp.LeftUpperLeg); rigRotation('leftLowerLeg', rp.LeftLowerLeg); }
+			else { easeBone('leftUpperLeg'); easeBone('leftLowerLeg'); }
+			if ((vis(26) + vis(28)) / 2 > 0.4) { rigRotation('rightUpperLeg', rp.RightUpperLeg); rigRotation('rightLowerLeg', rp.RightLowerLeg); }
+			else { easeBone('rightUpperLeg'); easeBone('rightLowerLeg'); }
 		}
 	}
 
@@ -333,7 +344,7 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 				rootSpeed = 0;
 			}
 
-			if (rp) rigPose(rp, walking);          // skip live legs while walking
+			if (rp) rigPose(rp, walking, poseLm);  // skip live legs while walking; gate by confidence
 			if (walking) applyStepLegs(stepPhase, stepAmp);
 			if (!faceLm) rigHeadFromPose(poseLm);  // head from pose when face tracking is off
 		} else {
@@ -426,7 +437,9 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 			video.loop = true; video.muted = true; video.crossOrigin = 'anonymous';
 			await video.play();
 		} else {
-			const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
+			const v = { width: { ideal: source.width || 1280 }, height: { ideal: source.height || 720 } };
+			if (source.deviceId) v.deviceId = { exact: source.deviceId };
+			const stream = await navigator.mediaDevices.getUserMedia({ video: v, audio: false });
 			video.srcObject = stream;
 			video.src = '';
 			await video.play();
