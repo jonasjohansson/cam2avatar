@@ -35,8 +35,23 @@ export function loadMixamoAnimation( url, vrm ) {
 		const parentRestWorldRotation = new THREE.Quaternion();
 		const _quatA = new THREE.Quaternion();
 
+		// Detect the rig's bone-name prefix. Mixamo is usually "mixamorig" but
+		// re-rigged/re-uploaded characters get numbered prefixes ("mixamorig1",
+		// "mixamorig2", ...); FBXLoader also strips any ":" from "mixamorig:Hips".
+		// Find the hips bone whatever it's called and derive the prefix from it.
+		let hipsNode = null;
+		asset.traverse( ( o ) => {
+			if ( ! hipsNode && /mixamorig/i.test( o.name ) && /Hips$/i.test( o.name ) ) hipsNode = o;
+		} );
+		if ( ! hipsNode ) {
+			throw new Error( 'No Mixamo "Hips" bone found. Is this a Mixamo animation FBX (mixamorig skeleton), not a character mesh?' );
+		}
+		const rigPrefix = hipsNode.name.replace( /Hips$/i, '' ); // e.g. "mixamorig" or "mixamorig1"
+		// Map an actual FBX bone name to the canonical "mixamorig*" key used by the rig map.
+		const toCanonical = ( name ) => 'mixamorig' + name.slice( rigPrefix.length );
+
 		// Adjust with reference to hips height.
-		const motionHipsHeight = asset.getObjectByName( 'mixamorigHips' ).position.y;
+		const motionHipsHeight = hipsNode.position.y;
 		const vrmHipsHeight = vrm.humanoid.normalizedRestPose.hips.position[ 1 ];
 		const hipsPositionScale = vrmHipsHeight / motionHipsHeight;
 
@@ -44,7 +59,7 @@ export function loadMixamoAnimation( url, vrm ) {
 
 			const trackSplitted = track.name.split( '.' );
 			const mixamoRigName = trackSplitted[ 0 ];
-			const vrmBoneName = mixamoVRMRigMap[ mixamoRigName ];
+			const vrmBoneName = mixamoVRMRigMap[ toCanonical( mixamoRigName ) ];
 			const vrmNodeName = vrm.humanoid?.getNormalizedBoneNode( vrmBoneName )?.name;
 			const mixamoRigNode = asset.getObjectByName( mixamoRigName );
 

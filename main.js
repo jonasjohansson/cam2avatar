@@ -210,9 +210,12 @@ speedEl.addEventListener('input', () => {
 });
 
 // Webcam mocap toggle
+const previewEl = document.getElementById('preview');
+const mocapOptsEl = document.getElementById('mocap-opts');
 const mocap = createMocap({
 	THREE,
 	video: document.getElementById('webcam'),
+	guideCanvas: document.getElementById('guide'),
 	getVrm: () => currentVrm,
 	log,
 });
@@ -225,11 +228,13 @@ webcamBtn.addEventListener('click', async () => {
 			await mocap.start();
 			webcamOn = true;
 			webcamBtn.textContent = '■ Stop webcam';
+			mocapOptsEl.hidden = false;
+			previewEl.hidden = !optPreview.checked;
 			// Webcam drives the rig now — stop the Mixamo clip.
 			if (mixer) mixer.stopAllAction();
 			playing = false;
 			playBtn.textContent = 'Play';
-			log('webcam mocap ON — face + upper body + hands. Legs stay put.');
+			log('webcam mocap ON — face + torso + arms + hands. Feet pinned.');
 		} catch (err) {
 			console.error(err);
 			webcamOn = false;
@@ -240,6 +245,8 @@ webcamBtn.addEventListener('click', async () => {
 		mocap.stop();
 		webcamOn = false;
 		webcamBtn.textContent = '● Webcam mocap (beta)';
+		mocapOptsEl.hidden = true;
+		previewEl.hidden = true;
 		// Hand the rig back to the Mixamo animation.
 		playing = true;
 		playBtn.textContent = 'Pause';
@@ -247,6 +254,17 @@ webcamBtn.addEventListener('click', async () => {
 		log('webcam off — back to Mixamo clip');
 	}
 });
+
+// Mocap options
+const optPreview = document.getElementById('opt-preview');
+const optLegs = document.getElementById('opt-legs');
+const optResp = document.getElementById('opt-resp');
+optPreview.addEventListener('change', () => {
+	mocap.setOptions({ preview: optPreview.checked });
+	if (webcamOn) previewEl.hidden = !optPreview.checked;
+});
+optLegs.addEventListener('change', () => mocap.setOptions({ trackLegs: optLegs.checked }));
+optResp.addEventListener('input', () => mocap.setOptions({ resp: parseFloat(optResp.value) }));
 
 // Drag & drop anywhere
 let dragDepth = 0;

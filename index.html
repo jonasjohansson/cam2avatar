@@ -130,6 +130,41 @@
 		}
 		body.dragging #drop-hint { display: flex; }
 
+		.check {
+			display: flex;
+			align-items: center;
+			gap: 6px;
+			font-size: 12px;
+			color: var(--ink);
+			margin-bottom: 4px;
+		}
+		.check input { width: auto; }
+		.range-row .rl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+		#mocap-opts { margin: 4px 0 var(--gap); padding: var(--gap); background: #f7f5ef; border: 1px solid var(--border); border-radius: var(--radius); }
+
+		#preview {
+			position: fixed;
+			right: var(--pad);
+			bottom: var(--pad);
+			width: 256px;
+			aspect-ratio: 4 / 3;
+			border: 1px solid var(--border);
+			border-radius: var(--radius);
+			overflow: hidden;
+			background: #000;
+			box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+			z-index: 5;
+		}
+		#preview video, #preview canvas {
+			position: absolute;
+			inset: 0;
+			width: 100%;
+			height: 100%;
+			object-fit: cover;
+			transform: scaleX(-1); /* mirror so it reads like a selfie */
+		}
+		#preview video { display: none; } /* canvas already draws the frame */
+
 		details { margin-top: var(--gap); font-size: 12px; }
 		details summary { cursor: pointer; color: var(--accent); }
 		details a { color: var(--accent); }
@@ -171,6 +206,15 @@
 		<div class="field">
 			<button class="secondary" id="webcam-btn">● Webcam mocap (beta)</button>
 		</div>
+		<div id="mocap-opts" hidden>
+			<label class="check"><input type="checkbox" id="opt-preview" checked> Camera preview</label>
+			<label class="check"><input type="checkbox" id="opt-legs"> Track legs (stand back, full body)</label>
+			<div class="range-row">
+				<span class="rl">Smooth</span>
+				<input type="range" id="opt-resp" min="0.3" max="1.6" step="0.05" value="1">
+				<span class="rl">Snappy</span>
+			</div>
+		</div>
 
 		<div class="field">
 			<label for="speed">Speed</label>
@@ -200,11 +244,15 @@
 
 	<div id="drop-hint">Drop .vrm or .fbx</div>
 
-	<!-- Hidden webcam stream for mocap -->
-	<video id="webcam" playsinline muted style="display:none"></video>
+	<!-- Webcam preview (video + landmark overlay), mirrored like a selfie -->
+	<div id="preview" hidden>
+		<video id="webcam" playsinline muted></video>
+		<canvas id="guide" width="640" height="480"></canvas>
+	</div>
 
 	<!-- Tracking libs (classic scripts -> window globals; loaded before the module) -->
 	<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+	<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
 	<script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js" crossorigin="anonymous"></script>
 	<script src="https://cdn.jsdelivr.net/npm/kalidokit@1.1/dist/kalidokit.umd.js" crossorigin="anonymous"></script>
 
