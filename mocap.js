@@ -145,27 +145,48 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		if (n) n.quaternion.slerp(_identity, amt);
 	}
 
+	// Neutral calibration: capture each person's resting pose so it maps to the
+	// avatar's rest (removes per-person posture offset). Euler-subtract the
+	// captured offset from each frame's solved rotation.
+	let calib = null, calibRequest = false;
+	const boneSrc = (rp) => ({
+		hips: rp.Hips.rotation, spine: rp.Spine, chest: rp.Spine,
+		rightUpperArm: rp.RightUpperArm, rightLowerArm: rp.RightLowerArm,
+		leftUpperArm: rp.LeftUpperArm, leftLowerArm: rp.LeftLowerArm,
+		leftUpperLeg: rp.LeftUpperLeg, leftLowerLeg: rp.LeftLowerLeg,
+		rightUpperLeg: rp.RightUpperLeg, rightLowerLeg: rp.RightLowerLeg,
+	});
+	function cal(name, rot) {
+		const c = calib?.[name];
+		if (!c || !rot) return rot;
+		return { x: (rot.x ?? 0) - c.x, y: (rot.y ?? 0) - c.y, z: (rot.z ?? 0) - c.z, rotationOrder: rot.rotationOrder };
+	}
+
 	function rigPose(rp, skipLegs, lm) {
-		rigRotation('hips', rp.Hips.rotation, 0.25);
-		rigRotation('chest', rp.Spine, 0.3);
-		rigRotation('spine', rp.Spine, 0.45);
+		const src = boneSrc(rp);
+		if (calibRequest) { calib = {}; for (const k in src) calib[k] = { x: src[k].x, y: src[k].y, z: src[k].z }; calibRequest = false; }
+		const r = (name) => cal(name, src[name]); // calibrated rotation for a bone
+		rigRotation('hips', r('hips'), 0.25);
+		rigRotation('chest', r('chest'), 0.3);
+		rigRotation('spine', r('spine'), 0.45);
 		// Per-limb confidence gating: drive a limb only when its landmarks are
-		// clearly visible, else ease it to rest (kills flail on occluded/out-of-frame
-		// limbs and bad-depth guesses). MediaPipe pose indices: elbows 13/14,
+		// clearly visible, else ease it to rest. MediaPipe indices: elbows 13/14,
 		// wrists 15/16, knees 25/26, ankles 27/28.
 		const vis = (i) => lm?.[i]?.visibility ?? 1;
 		const G = 1.15; // amplify limb range a touch (Kalidokit under-reaches)
-		if ((vis(14) + vis(16)) / 2 > 0.5) { rigRotation('rightUpperArm', rp.RightUpperArm, G); rigRotation('rightLowerArm', rp.RightLowerArm, G); }
+		if ((vis(14) + vis(16)) / 2 > 0.5) { rigRotation('rightUpperArm', r('rightUpperArm'), G); rigRotation('rightLowerArm', r('rightLowerArm'), G); }
 		else { easeBone('rightUpperArm'); easeBone('rightLowerArm'); }
-		if ((vis(13) + vis(15)) / 2 > 0.5) { rigRotation('leftUpperArm', rp.LeftUpperArm, G); rigRotation('leftLowerArm', rp.LeftLowerArm, G); }
+		if ((vis(13) + vis(15)) / 2 > 0.5) { rigRotation('leftUpperArm', r('leftUpperArm'), G); rigRotation('leftLowerArm', r('leftLowerArm'), G); }
 		else { easeBone('leftUpperArm'); easeBone('leftLowerArm'); }
 		if (opts.legsMode === 'webcam' && !skipLegs) {
-			if ((vis(25) + vis(27)) / 2 > 0.4) { rigRotation('leftUpperLeg', rp.LeftUpperLeg, G); rigRotation('leftLowerLeg', rp.LeftLowerLeg, G); }
+			if ((vis(25) + vis(27)) / 2 > 0.4) { rigRotation('leftUpperLeg', r('leftUpperLeg'), G); rigRotation('leftLowerLeg', r('leftLowerLeg'), G); }
 			else { easeBone('leftUpperLeg'); easeBone('leftLowerLeg'); }
-			if ((vis(26) + vis(28)) / 2 > 0.4) { rigRotation('rightUpperLeg', rp.RightUpperLeg, G); rigRotation('rightLowerLeg', rp.RightLowerLeg, G); }
+			if ((vis(26) + vis(28)) / 2 > 0.4) { rigRotation('rightUpperLeg', r('rightUpperLeg'), G); rigRotation('rightLowerLeg', r('rightLowerLeg'), G); }
 			else { easeBone('rightUpperLeg'); easeBone('rightLowerLeg'); }
 		}
 	}
+	function calibrate() { calibRequest = true; }
+	function resetCalibration() { calib = null; }
 
 	// Procedural step cycle (used while the avatar is actually moving sideways):
 	// alternating knee-lift phased by distance travelled, so the feet step
@@ -489,5 +510,5 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		if (qChanged && running) setQuality(opts.quality); // swap pose model live
 	}
 
-	return { start, stop, setOptions, applyIdle, groundContact, isRunning: () => running };
+	return { start, stop, setOptions, applyIdle, groundContact, calibrate, resetCalibration, isRunning: () => running };
 }

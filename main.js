@@ -568,6 +568,9 @@ const optFullbody = document.getElementById('opt-fullbody');
 optFullbody.addEventListener('change', () => mocap.setOptions({ requireFullBody: optFullbody.checked }));
 const optConf = document.getElementById('opt-conf');
 optConf.addEventListener('input', () => mocap.setOptions({ confThreshold: parseFloat(optConf.value) }));
+
+document.getElementById('opt-calib').addEventListener('click', () => { mocap.calibrate(); log('calibrated to your neutral pose'); });
+document.getElementById('opt-calib-reset').addEventListener('click', () => { mocap.resetCalibration(); log('calibration reset'); });
 const trackStatusEl = document.getElementById('track-status');
 const TRACK_UI = {
 	full: { color: '#22c55e', label: 'FULL BODY' },
