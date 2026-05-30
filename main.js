@@ -278,7 +278,8 @@ webcamBtn.addEventListener('click', async () => {
 			webcamBtn.textContent = '■ Stop tracking';
 			mocapOptsEl.hidden = false;
 			previewEl.hidden = !optPreview.checked;
-			previewEl.classList.toggle('mirror', isCam); // mirror only the live cam
+			optMirror.checked = isCam;              // mirror live cam by default, clips as-is
+			mocap.setOptions({ mirror: isCam });
 			// Webcam drives the rig now — stop the Mixamo clip.
 			if (mixer) mixer.stopAllAction();
 			playing = false;
@@ -323,6 +324,9 @@ optPlant.addEventListener('change', () => mocap.setOptions({ plantFeet: optPlant
 
 const optQuality = document.getElementById('opt-quality');
 optQuality.addEventListener('change', () => mocap.setOptions({ quality: optQuality.value }));
+
+const optMirror = document.getElementById('opt-mirror');
+optMirror.addEventListener('change', () => mocap.setOptions({ mirror: optMirror.checked }));
 
 const fpsEl = document.getElementById('fps');
 

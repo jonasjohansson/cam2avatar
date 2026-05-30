@@ -49,7 +49,8 @@ class OneEuro {
 
 export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 
-	const opts = { legsMode: 'off', resp: 1, preview: true, face: false, plantFeet: true, quality: 'full' };
+	const opts = { legsMode: 'off', resp: 1, preview: true, face: false, plantFeet: true, quality: 'full', mirror: false };
+	let mcanvas = null, mctx = null; // offscreen canvas for the mirrored frame
 	let pose = null, hand = null, face = null, fileset = null;
 	let running = false, rafId = 0;
 	let drawUtils = null;
@@ -187,14 +188,15 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 	}
 
 	// --- Preview -------------------------------------------------------------
-	function drawGuide(poseR, handR, faceR) {
+	function drawGuide(poseR, handR, faceR, input) {
 		if (!guideCanvas || !opts.preview) return;
 		const ctx = guideCanvas.getContext('2d');
 		const { width: w, height: h } = guideCanvas;
 		if (!drawUtils) drawUtils = new DrawingUtils(ctx);
 		ctx.save();
 		ctx.clearRect(0, 0, w, h);
-		if (video.videoWidth) ctx.drawImage(video, 0, 0, w, h);
+		const src = input || video;
+		if (src.width || src.videoWidth) ctx.drawImage(src, 0, 0, w, h);
 		const scale = { x: w, y: h }; // landmarks are normalized 0..1
 		const lm = (pts) => pts.map((p) => ({ x: p.x, y: p.y, z: p.z }));
 		if (poseR?.landmarks?.[0]) {
@@ -211,11 +213,12 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 
 	// --- Frame processing ----------------------------------------------------
 	let loggedSource = false;
-	function process(poseR, handR, faceR) {
-		drawGuide(poseR, handR, faceR);
+	function process(poseR, handR, faceR, input) {
+		drawGuide(poseR, handR, faceR, input);
 
 		const poseLm = poseR?.landmarks?.[0];
 		const poseWorld = poseR?.worldLandmarks?.[0];
+		window.__poseLm = poseLm || null; // debug hook (orientation checks)
 		let legVis = 0;
 		if (poseLm) {
 			const idx = [25, 26, 27, 28];
@@ -288,16 +291,29 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		old?.close?.();
 	}
 
+	// Returns the frame to run inference on — the raw video, or a horizontally
+	// flipped copy when mirroring (so the avatar acts like a mirror of you).
+	function getInput() {
+		if (!opts.mirror) return video;
+		if (!mcanvas) { mcanvas = document.createElement('canvas'); mctx = mcanvas.getContext('2d'); }
+		if (mcanvas.width !== video.videoWidth) { mcanvas.width = video.videoWidth; mcanvas.height = video.videoHeight; }
+		mctx.setTransform(-1, 0, 0, 1, mcanvas.width, 0);
+		mctx.drawImage(video, 0, 0);
+		mctx.setTransform(1, 0, 0, 1, 0, 0);
+		return mcanvas;
+	}
+
 	let fpsCount = 0, fpsT = 0;
 	function loop() {
 		if (!running) return;
 		if (video.readyState >= 2 && video.videoWidth > 0) {
 			const t = performance.now();
+			const input = getInput();
 			let pR, hR, fR;
-			try { if (pose) pR = pose.detectForVideo(video, t); } catch (e) { /* */ }
-			try { hR = hand.detectForVideo(video, t); } catch (e) { /* */ }
-			if (opts.face && face) { try { fR = face.detectForVideo(video, t); } catch (e) { /* */ } }
-			process(pR, hR, fR);
+			try { if (pose) pR = pose.detectForVideo(input, t); } catch (e) { /* */ }
+			try { hR = hand.detectForVideo(input, t); } catch (e) { /* */ }
+			if (opts.face && face) { try { fR = face.detectForVideo(input, t); } catch (e) { /* */ } }
+			process(pR, hR, fR, input);
 			// Tracking FPS (inference throughput), exposed for the readout + harness.
 			fpsCount++;
 			if (t - fpsT >= 500) { window.__mocapFps = Math.round((fpsCount * 1000) / (t - fpsT)); fpsCount = 0; fpsT = t; }
