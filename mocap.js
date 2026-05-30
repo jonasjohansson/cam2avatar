@@ -20,6 +20,7 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 
 	let holistic = null;
 	let camera = null;
+	let videoRaf = 0;
 	let running = false;
 
 	const opts = {
@@ -189,6 +190,26 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 
 	function onResults(results) {
 		drawGuide(results);
+
+		const world = results.poseWorldLandmarks || results.ea || results.za;
+
+		// Expose lightweight per-frame stats for the evaluation harness.
+		const pls = results.poseLandmarks;
+		let legVis = 0;
+		if (pls) {
+			const idx = [25, 26, 27, 28]; // knees + ankles
+			legVis = idx.reduce((s, i) => s + (pls[i]?.visibility ?? 0), 0) / idx.length;
+		}
+		window.__mocapLast = {
+			face: !!results.faceLandmarks,
+			pose: !!pls,
+			world: !!world,
+			lhand: !!results.leftHandLandmarks,
+			rhand: !!results.rightHandLandmarks,
+			legVis,
+			ts: performance.now(),
+		};
+
 		const vrm = getVrm();
 		if (!vrm) return;
 
@@ -197,7 +218,6 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 			if (riggedFace) rigFace(riggedFace);
 		}
 
-		const world = results.poseWorldLandmarks || results.ea || results.za;
 		if (!loggedSource && results.poseLandmarks) {
 			loggedSource = true;
 			console.log('[mocap] tracking live · world landmarks:', !!world);
@@ -221,8 +241,9 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 
 	// --- Lifecycle -----------------------------------------------------------
 
-	async function start() {
-		if (!window.Holistic || !window.Kalidokit || !window.Camera) {
+	// source: { type: 'camera' } (default) or { type: 'video', url }
+	async function start(source = { type: 'camera' }) {
+		if (!window.Holistic || !window.Kalidokit) {
 			throw new Error('Tracking libraries did not load (check network/CDN).');
 		}
 		if (running) return;
@@ -239,23 +260,43 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		});
 		holistic.onResults(onResults);
 
-		camera = new window.Camera(video, {
-			onFrame: async () => { if (running) await holistic.send({ image: video }); },
-			width: 640,
-			height: 480,
-		});
 		running = true;
 		loggedSource = false;
-		await camera.start();
+
+		if (source.type === 'video') {
+			// Play a test clip through the same pipeline (manual frame pump).
+			video.srcObject = null;
+			video.src = source.url;
+			video.loop = true;
+			video.muted = true;
+			video.crossOrigin = 'anonymous';
+			await video.play();
+			const pump = async () => {
+				if (!running) return;
+				try { if (video.readyState >= 2) await holistic.send({ image: video }); } catch (e) { /* frame skip */ }
+				if (running) videoRaf = requestAnimationFrame(pump);
+			};
+			pump();
+		} else {
+			if (!window.Camera) throw new Error('Camera helper did not load.');
+			camera = new window.Camera(video, {
+				onFrame: async () => { if (running) await holistic.send({ image: video }); },
+				width: 640,
+				height: 480,
+			});
+			await camera.start();
+		}
 	}
 
 	function stop() {
 		running = false;
+		if (videoRaf) { cancelAnimationFrame(videoRaf); videoRaf = 0; }
 		if (camera) { camera.stop?.(); camera = null; }
 		if (video.srcObject) {
 			video.srcObject.getTracks().forEach((t) => t.stop());
 			video.srcObject = null;
 		}
+		if (video.src) { video.pause(); video.removeAttribute('src'); video.load(); }
 		if (holistic) { holistic.close?.(); holistic = null; }
 		if (guideCanvas) guideCanvas.getContext('2d').clearRect(0, 0, guideCanvas.width, guideCanvas.height);
 		const vrm = getVrm();

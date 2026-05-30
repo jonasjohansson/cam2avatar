@@ -68,6 +68,9 @@ const clock = new THREE.Clock();
 const statusEl = document.getElementById('status');
 const log = (msg) => { statusEl.textContent = msg; };
 
+// Dev hook for the evaluation harness (read current rig state from Playwright).
+window.__getVrm = () => currentVrm;
+
 // --- Loading: VRM -----------------------------------------------------------
 
 function makeGltfLoader() {
@@ -222,31 +225,35 @@ const mocap = createMocap({
 	log,
 });
 const webcamBtn = document.getElementById('webcam-btn');
+const sourceSelect = document.getElementById('source-select');
 let webcamOn = false;
 webcamBtn.addEventListener('click', async () => {
 	if (!webcamOn) {
 		try {
-			webcamBtn.textContent = '○ starting camera…';
-			await mocap.start();
+			const src = sourceSelect.value;
+			const isCam = src === 'camera';
+			webcamBtn.textContent = isCam ? '○ starting camera…' : '○ loading clip…';
+			await mocap.start(isCam ? { type: 'camera' } : { type: 'video', url: src });
 			webcamOn = true;
-			webcamBtn.textContent = '■ Stop webcam';
+			webcamBtn.textContent = '■ Stop tracking';
 			mocapOptsEl.hidden = false;
 			previewEl.hidden = !optPreview.checked;
+			previewEl.classList.toggle('mirror', isCam); // mirror only the live cam
 			// Webcam drives the rig now — stop the Mixamo clip.
 			if (mixer) mixer.stopAllAction();
 			playing = false;
 			playBtn.textContent = 'Play';
-			log('webcam mocap ON — face + torso + arms + hands. Feet pinned.');
+			log(`tracking ON (${sourceSelect.options[sourceSelect.selectedIndex].text}) — face + torso + arms + hands`);
 		} catch (err) {
 			console.error(err);
 			webcamOn = false;
-			webcamBtn.textContent = '● Webcam mocap (beta)';
-			log(`✗ webcam: ${err.message ?? err}`);
+			webcamBtn.textContent = '● Start tracking';
+			log(`✗ tracking: ${err.message ?? err}`);
 		}
 	} else {
 		mocap.stop();
 		webcamOn = false;
-		webcamBtn.textContent = '● Webcam mocap (beta)';
+		webcamBtn.textContent = '● Start tracking';
 		mocapOptsEl.hidden = true;
 		previewEl.hidden = true;
 		// Hand the rig back to the Mixamo animation.
