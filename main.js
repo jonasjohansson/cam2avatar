@@ -360,7 +360,7 @@ recBtn.addEventListener('click', () => {
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement('a');
 			a.href = url;
-			a.download = `vrm-mixamo-${Date.now()}.${ext}`;
+			a.download = `cam2avatar-${Date.now()}.${ext}`;
 			a.click();
 			setTimeout(() => URL.revokeObjectURL(url), 1000);
 			log(`saved recording (${(blob.size / 1e6).toFixed(1)} MB) → Downloads`);

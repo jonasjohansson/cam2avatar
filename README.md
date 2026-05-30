@@ -16,7 +16,7 @@ entirely in the browser. Built on [three.js](https://threejs.org) +
 It's plain static files served from the local web root:
 
 ```
-http://localhost/org/jonasjohansson/vrm-mixamo/
+http://localhost/org/jonasjohansson/cam2avatar/
 ```
 
 Or serve the folder any way you like (e.g. `python3 -m http.server` from this dir,

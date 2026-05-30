@@ -22,7 +22,7 @@ Output -> eval/out/.
 import sys, os, json, statistics, re
 from playwright.sync_api import sync_playwright
 
-APP = "http://localhost/org/jonasjohansson/vrm-mixamo/index.html"
+APP = "http://localhost/org/jonasjohansson/cam2avatar/index.html"
 OUT = os.path.join(os.path.dirname(__file__), "out")
 os.makedirs(OUT, exist_ok=True)
 
