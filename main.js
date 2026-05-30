@@ -102,6 +102,8 @@ async function loadVRM(src, label) {
 		scene.add(vrm.scene);
 		currentVrm = vrm;
 
+		refreshSkeleton(); // rebuild the overlay for the new rig
+
 		const ver = vrm.meta?.metaVersion === '0' ? 'VRM 0.x' : 'VRM 1.0';
 		log(`character ready: ${label}  (${ver})`);
 
@@ -265,6 +267,28 @@ optPreview.addEventListener('change', () => {
 });
 optLegs.addEventListener('change', () => mocap.setOptions({ legsMode: optLegs.value }));
 optResp.addEventListener('input', () => mocap.setOptions({ resp: parseFloat(optResp.value) }));
+
+// Skeleton overlay — draws the VRM's actual bones on top of the mesh so you can
+// see exactly which bones are (or aren't) being driven.
+let skeletonHelper = null;
+const optSkel = document.getElementById('opt-skeleton');
+function refreshSkeleton() {
+	if (skeletonHelper) {
+		scene.remove(skeletonHelper);
+		skeletonHelper.geometry?.dispose();
+		skeletonHelper.material?.dispose();
+		skeletonHelper = null;
+	}
+	if (optSkel.checked && currentVrm) {
+		skeletonHelper = new THREE.SkeletonHelper(currentVrm.scene);
+		skeletonHelper.material.depthTest = false; // always visible, even through the mesh
+		skeletonHelper.material.depthWrite = false;
+		skeletonHelper.material.transparent = true;
+		skeletonHelper.renderOrder = 999;
+		scene.add(skeletonHelper);
+	}
+}
+optSkel.addEventListener('change', refreshSkeleton);
 
 // Drag & drop anywhere
 let dragDepth = 0;
