@@ -322,6 +322,22 @@
 
 		<div id="status">booting…</div>
 
+		<details open>
+			<summary>What's happening?</summary>
+			<p>
+				Your camera drives a 3D avatar in real time, entirely in the browser.
+				<a href="https://ai.google.dev/edge/mediapipe" target="_blank" rel="noopener">MediaPipe</a>
+				tracks your body, hands and face; the avatar copies your pose.<br><br>
+				The <strong>camera frame</strong> shows tracking quality:
+				<span style="color:#16a34a">green = full body</span>,
+				<span style="color:#d97706">amber = show your legs</span>,
+				<span style="color:#dc2626">red = step into frame</span>.
+				The avatar only moves when your <strong>full body</strong> is confidently in view —
+				otherwise it holds still (tune with the confidence slider). Stand back so your whole
+				body is visible, well-lit, for the best result.
+			</p>
+		</details>
+
 		<details>
 			<summary>Where do I get more?</summary>
 			<p>
