@@ -1,7 +1,8 @@
 // cam2avatar v2 — WebGPU 3D sandbox.
-// Compares MediaPipe's monocular 3D (blue) against the Mobile Human Pose model
-// (orange) — a 3DMPPE image->3D network run on WebGPU via onnxruntime-web.
-// Standalone; doesn't touch the main app.
+// Compares MediaPipe's monocular 3D (blue) against a SimpleBaseline3D 2D->3D
+// lifter (orange) — a residual MLP that lifts MediaPipe's reliable 2D keypoints
+// to metric 3D, run on WebGPU via onnxruntime-web. Standalone; doesn't touch
+// the main app.
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -14,11 +15,14 @@ const Kalidokit = window.Kalidokit;
 
 const TV = '0.10.35';
 const POSE_MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task';
-const LIFT_MODEL = './models/mobile_human_pose_256x256.onnx';
+const LIFT_MODEL = './models/simplebaseline3d_h36m.onnx';
 
-// 3DMPPE / MuCo 21-joint skeleton (pelvis = 14 is the root).
-const MHP_SKELETON = [[0,16],[16,1],[1,15],[15,14],[14,8],[14,11],[8,9],[9,10],[10,19],[11,12],[12,13],[13,20],[1,2],[2,3],[3,4],[4,17],[1,5],[5,6],[6,7],[7,18]];
-const MHP_ROOT = 14;
+// Human3.6M 17-joint skeleton (pelvis = 0 is the root). The lifter outputs
+// metric (m), root-relative, y-down 3D — the same convention as MediaPipe world.
+// 0 Pelvis 1 RHip 2 RKnee 3 RAnkle 4 LHip 5 LKnee 6 LAnkle 7 Spine 8 Thorax
+// 9 Neck/Nose 10 Head 11 LShoulder 12 LElbow 13 LWrist 14 RShoulder 15 RElbow 16 RWrist
+const LIFT_SKELETON = [[0,1],[1,2],[2,3],[0,4],[4,5],[5,6],[0,7],[7,8],[8,9],[9,10],[8,11],[11,12],[12,13],[8,14],[14,15],[15,16]];
+const LIFT_ROOT = 0;
 
 const statusEl = document.getElementById('status');
 const lines = [];
@@ -46,7 +50,7 @@ scene.add(new THREE.GridHelper(4, 8, 0xaab0bd, 0xc7ccd6));
 scene.add(new THREE.HemisphereLight(0xffffff, 0x667, 1.4));
 const dir = new THREE.DirectionalLight(0xffffff, 1.4); dir.position.set(1, 2, 1.5); scene.add(dir);
 
-// --- Two VRM avatars: A = MediaPipe (like v1), B = Mobile Human Pose model ---
+// --- Two VRM avatars: A = MediaPipe (like v1), B = SimpleBaseline3D lifter ---
 const VRM_URL = 'https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/stable/AvatarSample_C.vrm';
 let vrmA = null, vrmB = null;
 async function loadOne(x) {
@@ -149,17 +153,14 @@ function driveVRM(vrm, world, lm) {
 	else { easeBone(vrm, 'rightUpperLeg'); easeBone(vrm, 'rightLowerLeg'); }
 	rigHeadFromPose(vrm, lm);                      // head from pose (no-op for avatar B)
 }
-// MHP 21 joints -> MediaPipe-world-format (metric-ish, pelvis-centred) so the
-// same Kalidokit solver can drive avatar B from the new model's 3D.
-const MHP2MP = { 0: 16, 11: 5, 12: 2, 13: 6, 14: 3, 15: 7, 16: 4, 23: 11, 24: 8, 25: 12, 26: 9, 27: 13, 28: 10 };
-function mhpToMpWorld(mhp) {
-	const r = mhp[14], S = 1.7;
+// H36M 17 joints -> MediaPipe-33 world format so the same Kalidokit solver can
+// drive avatar B. The lifter output is already metric, pelvis-centred, y-down,
+// +z away — exactly MediaPipe's world convention — so this is a pure reindex
+// (no scale fudge, no sign flip). Key = MediaPipe index, value = H36M index.
+const H2MP = { 0: 9, 11: 11, 12: 14, 13: 12, 14: 15, 15: 13, 16: 16, 23: 4, 24: 1, 25: 5, 26: 2, 27: 6, 28: 3 };
+function liftToMpWorld(j) {
 	const w = Array.from({ length: 33 }, () => ({ x: 0, y: 0, z: 0, visibility: 0 }));
-	// MediaPipe world and MHP share the same depth sign (closer = smaller z), so
-	// z is NOT negated here — the earlier flip fed Kalidokit inverted depth and
-	// swung avatar B's limbs the wrong way. (The on-screen skeleton in
-	// renderSkeleton keeps its own -z purely to face the +Z camera.)
-	for (const mp in MHP2MP) { const j = mhp[MHP2MP[mp]]; w[mp] = { x: (j.x - r.x) * S, y: (j.y - r.y) * S, z: (j.z - r.z) * S, visibility: 1 }; }
+	for (const mp in H2MP) { const p = j[H2MP[mp]]; w[mp] = { x: p.x, y: p.y, z: p.z, visibility: 1 }; }
 	return w;
 }
 
@@ -195,7 +196,7 @@ function applyView() {
 	mhpSkel.visible(!a);
 }
 showAvatar.addEventListener('change', applyView);
-const mhpSkel = makeSkeleton(0xf59e0b, 21, MHP_SKELETON);
+const mhpSkel = makeSkeleton(0xf59e0b, 17, LIFT_SKELETON); // orange = lifter
 mhpSkel.visible(false);
 mhpSkel.points.position.set(1.6, 0.9, 0); // aligned with avatar B
 mhpSkel.segs.position.set(1.6, 0.9, 0);
@@ -225,7 +226,7 @@ const WIN = 45; // ~sliding window of frames
 const _d3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 function makeMetric(bones) { return { bones, hist: bones.map(() => []), prev: null, vsum: 0, vn: 0 }; }
 const mBlue = makeMetric([[11,13],[13,15],[12,14],[14,16],[23,25],[25,27],[24,26],[26,28],[11,23],[12,24]]);
-const mOrange = makeMetric([[2,3],[3,4],[5,6],[6,7],[8,9],[9,10],[11,12],[12,13]]); // MHP limb bones
+const mOrange = makeMetric([[1,2],[2,3],[4,5],[5,6],[11,12],[12,13],[14,15],[15,16]]); // H36M limb bones
 function resetMetric(m) { m.hist.forEach((h) => (h.length = 0)); m.prev = null; m.vsum = 0; m.vn = 0; }
 function pushMetric(m, J, label) {
 	let cv = 0, nb = 0;
@@ -247,7 +248,7 @@ function pushMetric(m, J, label) {
 
 // One-Euro bank for the 21 orange joints (xyz), smoothed before render + drive
 // so the per-frame ONNX jitter doesn't pass straight through.
-const _mhpFilt = Array.from({ length: 21 * 3 }, () => new OneEuro(1.5, 0.3, 1.0)); // 21 joints × xyz
+const _mhpFilt = Array.from({ length: 17 * 3 }, () => new OneEuro(1.5, 0.3, 1.0)); // 17 joints × xyz
 function smoothJoints(joints, t) {
 	return joints.map((p, j) => ({ x: _mhpFilt[j*3].filter(p.x, t), y: _mhpFilt[j*3+1].filter(p.y, t), z: _mhpFilt[j*3+2].filter(p.z, t) }));
 }
@@ -270,10 +271,8 @@ addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; cam
 const clock = new THREE.Clock();
 (function loop() { requestAnimationFrame(loop); const dt = clock.getDelta(); if (vrmA) vrmA.update(dt); if (vrmB) vrmB.update(dt); controls.update(); renderer.render(scene, camera); if (compCtx) drawComp(); })();
 
-// --- onnxruntime-web (WebGPU) + Mobile Human Pose --------------------------
+// --- onnxruntime-web (WebGPU) + SimpleBaseline3D lifter --------------------
 let liftSession = null;
-const crop = document.createElement('canvas'); crop.width = 256; crop.height = 256;
-const cropCtx = crop.getContext('2d', { willReadFrequently: true });
 
 async function loadLifter(url) {
 	log('model', 'loading…', 'wait');
@@ -285,51 +284,32 @@ async function loadLifter(url) {
 	} catch (e) { console.error(e); log('model', `failed: ${e.message ?? e}`, 'bad'); }
 }
 
-// Crop the person (from MediaPipe's landmarks) to a 256x256 raw-RGB CHW tensor.
-function preprocess(lm) {
+// Build the lifter's [1,17,2] input from MediaPipe image-space landmarks.
+// H36M expects pixel-scale coords, so we use real pixels (x*vw, y*vh) to keep
+// the true aspect ratio. Pelvis/Thorax/Spine/Head aren't MediaPipe joints, so
+// they're synthesized from mid-hip / mid-shoulder / nose. MP2H maps the rest:
+// H36M index -> MediaPipe index. (MediaPipe 11 = anatomical left, matching H36M.)
+const J = 17;
+const MP2H = { 1: 24, 2: 26, 3: 28, 4: 23, 5: 25, 6: 27, 9: 0, 11: 11, 12: 13, 13: 15, 14: 12, 15: 14, 16: 16 };
+function buildKeypoints(lm) {
 	const vw = video.videoWidth, vh = video.videoHeight;
-	let minx = 1, miny = 1, maxx = 0, maxy = 0;
-	for (const p of lm) { if ((p.visibility ?? 1) < 0.3) continue; minx = Math.min(minx, p.x); miny = Math.min(miny, p.y); maxx = Math.max(maxx, p.x); maxy = Math.max(maxy, p.y); }
-	const cx = (minx + maxx) / 2 * vw, cy = (miny + maxy) / 2 * vh;
-	const half = Math.max((maxx - minx) * vw, (maxy - miny) * vh) / 2 * 1.25; // square + pad (3DMPPE uses 1.25)
-	// Fill with the ImageNet mean grey so any area outside the frame (when the
-	// crop runs off-edge) normalizes to ~0 instead of black (-mean/std), which
-	// would inject strong negative activations and pollute the heatmap.
-	cropCtx.fillStyle = 'rgb(124,116,104)';
-	cropCtx.fillRect(0, 0, 256, 256);
-	cropCtx.drawImage(video, cx - half, cy - half, half * 2, half * 2, 0, 0, 256, 256);
-	const d = cropCtx.getImageData(0, 0, 256, 256).data;
-	const t = new Float32Array(3 * 256 * 256);
-	const plane = 256 * 256;
-	// 3DMPPE / MobileHumanPose was trained with ToTensor (0..1) + ImageNet
-	// normalization. Feeding raw 0..255 is ~250x the trained input scale and
-	// saturates the network -> the "wobble". Normalize per channel (RGB).
-	const MEAN = [0.485, 0.456, 0.406], STD = [0.229, 0.224, 0.225];
-	for (let i = 0; i < plane; i++) {
-		t[i]             = (d[i * 4]     / 255 - MEAN[0]) / STD[0];
-		t[plane + i]     = (d[i * 4 + 1] / 255 - MEAN[1]) / STD[1];
-		t[2 * plane + i] = (d[i * 4 + 2] / 255 - MEAN[2]) / STD[2];
-	}
-	return new ort.Tensor('float32', t, [1, 3, 256, 256]);
+	const px = (i) => lm[i].x * vw, py = (i) => lm[i].y * vh;
+	const kp = new Float32Array(J * 2);
+	const set = (h, x, y) => { kp[h * 2] = x; kp[h * 2 + 1] = y; };
+	const pelX = (px(23) + px(24)) / 2, pelY = (py(23) + py(24)) / 2;
+	const thoX = (px(11) + px(12)) / 2, thoY = (py(11) + py(12)) / 2;
+	set(0, pelX, pelY);                                 // Pelvis = mid-hip
+	set(8, thoX, thoY);                                 // Thorax = mid-shoulder
+	set(7, (pelX + thoX) / 2, (pelY + thoY) / 2);       // Spine
+	set(10, px(0), py(0) - 0.06 * vh);                  // Head = nose lifted
+	for (const h in MP2H) { const i = MP2H[h]; set(+h, px(i), py(i)); }
+	return new ort.Tensor('float32', kp, [1, J, 2]);
 }
 
-// Soft-argmax over the [1,672,32,32] heatmap -> 21 joints (x,y in [0,1], z in [-1,1]).
-const J = 21, DIM = 32, HW = DIM * DIM;
+// Output is [1,17,3] = metric (m), root-relative 3D, H36M order. Just reshape.
 function decode(out) {
 	const joints = [];
-	for (let j = 0; j < J; j++) {
-		let max = -Infinity;
-		for (let d = 0; d < DIM; d++) { const base = (j * DIM + d) * HW; for (let i = 0; i < HW; i++) { const v = out[base + i]; if (v > max) max = v; } }
-		let sum = 0, ex = 0, ey = 0, ez = 0;
-		for (let d = 0; d < DIM; d++) {
-			const base = (j * DIM + d) * HW;
-			for (let h = 0; h < DIM; h++) for (let w = 0; w < DIM; w++) {
-				const e = Math.exp(out[base + h * DIM + w] - max);
-				sum += e; ex += e * w; ey += e * h; ez += e * d;
-			}
-		}
-		joints.push({ x: ex / sum / DIM, y: ey / sum / DIM, z: (ez / sum / DIM) * 2 - 1 });
-	}
+	for (let j = 0; j < J; j++) joints.push({ x: out[j * 3], y: out[j * 3 + 1], z: out[j * 3 + 2] });
 	return joints;
 }
 
@@ -341,13 +321,13 @@ async function runLifter(lm) {
 	lastLift = now;
 	busy = true;
 	try {
-		const input = preprocess(lm);
+		const input = buildKeypoints(lm);
 		const out = await liftSession.run({ [liftSession.inputNames[0]]: input });
 		const joints = smoothJoints(decode(out[liftSession.outputNames[0]].data), performance.now());
-		renderSkeleton(mhpSkel, joints, MHP_ROOT, 1.6);
+		renderSkeleton(mhpSkel, joints, LIFT_ROOT, 1.0); // metric → scale 1.0, matches blue
 		pushMetric(mOrange, joints, 'orange');
-		const mw = mhpToMpWorld(joints);
-		driveVRM(vrmB, mw, mw); // B = Mobile Human Pose model
+		const mw = liftToMpWorld(joints);
+		driveVRM(vrmB, mw, mw); // B = SimpleBaseline3D lifter
 		input.dispose?.(); out[liftSession.outputNames[0]]?.dispose?.();
 	} catch (e) { log('model', `infer error: ${e.message ?? e}`, 'bad'); liftSession = null; }
 	busy = false;
@@ -457,4 +437,4 @@ log('webgpu', navigator.gpu ? 'available' : 'NOT available', navigator.gpu ? 'ok
 log('ort', `v${ort.env.versions.common}`, 'ok');
 log('mediapipe', 'idle — press Start', 'wait');
 document.getElementById('model').value = LIFT_MODEL;
-log('model', 'Mobile Human Pose (bundled) — loads on Start', 'wait');
+log('model', 'SimpleBaseline3D lifter (bundled) — loads on Start', 'wait');

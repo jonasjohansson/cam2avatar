@@ -74,10 +74,10 @@
 			<summary style="cursor:pointer; color:var(--accent)">What is this?</summary>
 			<p style="color:var(--muted); line-height:1.5">
 				The blue skeleton is MediaPipe's own monocular 3D (its weakest axis is depth).
-				onnxruntime-web is initialized on WebGPU here so a 2D→3D <em>lifting</em> model can
-				be dropped in to recover better depth. No public browser-ready lifter exists yet —
-				you export one (e.g. SimpleBaseline3D from MMPose) to ONNX, host it, paste the URL.
-				The lifted skeleton then renders in orange next to MediaPipe's for A/B.
+				The orange one is a <em>2D→3D lifter</em> (SimpleBaseline3D, MMPose / Apache-2.0)
+				running on onnxruntime-web / WebGPU: it takes MediaPipe's reliable 2D keypoints and
+				predicts metric 3D, so you can A/B which recovers better depth. Paste another lifter's
+				<code>.onnx</code> URL above to swap it (expects H36M 17-joint <code>[1,17,2]→[1,17,3]</code>).
 			</p>
 		</details>
 	</div>
