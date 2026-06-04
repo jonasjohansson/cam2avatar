@@ -212,11 +212,16 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 	// tracking off. Uses image-plane signals (reliable): ear-line tilt = roll,
 	// nose-between-ears = yaw, nose-below-ears = pitch. Signs centralized for
 	// easy flipping if it turns the wrong way live.
-	const HEAD = { yaw: -0.8, pitch: 0.9, roll: -1.0, pitchBias: 0.18 };
+	// Gains/clamps kept conservative: pose-derived head signals (nose vs. ears)
+	// are noisy on a distant subject, so over-driving them makes the head swing
+	// unnaturally. A deadzone ignores sub-threshold jitter so only clear head
+	// turns/tilts/nods move the neck — the head stays calm at rest.
+	const HEAD = { yaw: -0.55, pitch: 0.6, roll: -0.5, pitchBias: 0.18, dz: { yaw: 0.12, pitch: 0.07, roll: 0.08 } };
+	const headDead = (v, d) => (Math.abs(v) <= d ? 0 : v - Math.sign(v) * d);
 	function rigHeadFromPose(lm) {
 		const nose = lm[0], lEar = lm[7], rEar = lm[8];
 		if (!nose || !lEar || !rEar) return;
-		if ((lEar.visibility ?? 1) < 0.4 || (rEar.visibility ?? 1) < 0.4) return;
+		if ((lEar.visibility ?? 1) < 0.5 || (rEar.visibility ?? 1) < 0.5) return;
 		const dx = rEar.x - lEar.x, dy = rEar.y - lEar.y;
 		const w = Math.hypot(dx, dy) || 1e-3;
 		const roll = Math.atan2(dy, dx);
@@ -224,9 +229,9 @@ export function createMocap({ THREE, video, guideCanvas, getVrm, log }) {
 		const yaw = (t - 0.5) * 2;
 		const pitch = (nose.y - (lEar.y + rEar.y) / 2) / w - HEAD.pitchBias;
 		rigRotation('neck', {
-			x: clamp(pitch * HEAD.pitch, -0.6, 0.6),
-			y: clamp(yaw * HEAD.yaw, -0.7, 0.7),
-			z: clamp(roll * HEAD.roll, -0.5, 0.5),
+			x: clamp(headDead(pitch, HEAD.dz.pitch) * HEAD.pitch, -0.4, 0.4),
+			y: clamp(headDead(yaw, HEAD.dz.yaw) * HEAD.yaw, -0.5, 0.5),
+			z: clamp(headDead(roll, HEAD.dz.roll) * HEAD.roll, -0.3, 0.3),
 		}, 0.8);
 	}
 
