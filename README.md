@@ -51,6 +51,24 @@ HandLandmarker on the **GPU** → [Kalidokit](https://github.com/yeemachine/kali
 
 Validate tracking objectively with the harness in `eval/` (see `eval/README.md`).
 
+#### Why monocular MediaPipe (depth experiments)
+
+A standalone WebGPU sandbox (`/v2/`, since removed) A/B-tested two alternative 3D
+estimators against MediaPipe's monocular 3D, on `onnxruntime-web`:
+
+- **Mobile Human Pose** (3DMPPE image→3D) — out-of-distribution on this footage;
+  collapsed to a near-static skeleton with almost no depth.
+- **SimpleBaseline3D** (2D→3D lift of MediaPipe's keypoints) — coherent and metric,
+  but on live/clip input it added jitter rather than recovering better depth.
+
+**Conclusion:** MediaPipe's own monocular 3D (what the app uses) stayed the best
+lightweight option here; neither alternative beat it, and fusing their depth was
+not worth the instability. Two things the sandbox surfaced did land in the app:
+the pose-driven head was over-reacting to landmark jitter (now deadzoned +
+lower-gain in `mocap.js`), and a self-supervised quality proxy — **bone-length
+consistency** (a correct 3D pose keeps bone lengths stable frame-to-frame) — is a
+good future addition to the eval harness.
+
 ### Getting your own assets
 
 - **Animations** — sign in free at [mixamo.com](https://www.mixamo.com), choose an animation,
