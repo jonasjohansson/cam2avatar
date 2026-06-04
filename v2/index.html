@@ -31,6 +31,10 @@
 	<div id="panel">
 		<h1>cam2avatar v2 — WebGPU 3D-lift sandbox</h1>
 		<p class="sub">Experiment: live MediaPipe 3D vs. an ONNX 2D→3D lifting model (onnxruntime-web / WebGPU). Sandboxed; doesn't touch the main app.</p>
+		<div style="display:flex; gap:14px; font-size:11px; margin:0 0 10px; color:var(--muted)">
+			<span><span style="display:inline-block;width:10px;height:10px;background:#2b5fd9;border-radius:2px;vertical-align:middle"></span> MediaPipe 3D</span>
+			<span><span style="display:inline-block;width:10px;height:10px;background:#f59e0b;border-radius:2px;vertical-align:middle"></span> ONNX lifter</span>
+		</div>
 
 		<label for="src">Source</label>
 		<select id="src" style="width:100%">
@@ -44,6 +48,15 @@
 		<label style="display:flex; align-items:center; gap:6px; font-size:12px; text-transform:none; letter-spacing:0; font-weight:400; color:var(--ink); margin:2px 0 0">
 			<input type="checkbox" id="showAvatar" checked> Show avatar (off = blue MediaPipe skeleton)
 		</label>
+		<label style="display:flex; align-items:center; gap:6px; font-size:12px; text-transform:none; letter-spacing:0; font-weight:400; color:var(--ink); margin:4px 0 0">
+			<input type="checkbox" id="overlay"> Overlay skeletons (both at same spot)
+		</label>
+		<label>View</label>
+		<div class="row">
+			<button class="sec" id="v-front" style="flex:1">Front</button>
+			<button class="sec" id="v-side" style="flex:1">Side</button>
+			<button class="sec" id="v-top" style="flex:1">Top</button>
+		</div>
 		<div class="row" style="margin-top:8px">
 			<button class="sec" id="rec">● Record</button>
 			<select id="recFmt" style="flex:0 0 80px"><option value="webm">WebM</option><option value="mp4">MP4</option></select>

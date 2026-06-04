@@ -155,7 +155,11 @@ const MHP2MP = { 0: 16, 11: 5, 12: 2, 13: 6, 14: 3, 15: 7, 16: 4, 23: 11, 24: 8,
 function mhpToMpWorld(mhp) {
 	const r = mhp[14], S = 1.7;
 	const w = Array.from({ length: 33 }, () => ({ x: 0, y: 0, z: 0, visibility: 0 }));
-	for (const mp in MHP2MP) { const j = mhp[MHP2MP[mp]]; w[mp] = { x: (j.x - r.x) * S, y: (j.y - r.y) * S, z: -(j.z - r.z) * S, visibility: 1 }; }
+	// MediaPipe world and MHP share the same depth sign (closer = smaller z), so
+	// z is NOT negated here — the earlier flip fed Kalidokit inverted depth and
+	// swung avatar B's limbs the wrong way. (The on-screen skeleton in
+	// renderSkeleton keeps its own -z purely to face the +Z camera.)
+	for (const mp in MHP2MP) { const j = mhp[MHP2MP[mp]]; w[mp] = { x: (j.x - r.x) * S, y: (j.y - r.y) * S, z: (j.z - r.z) * S, visibility: 1 }; }
 	return w;
 }
 
@@ -212,6 +216,56 @@ function renderSkeleton(skel, joints, root, scale) {
 	skel.segs.geometry.attributes.position.needsUpdate = true;
 }
 
+// --- Self-supervised quality scoreboard ------------------------------------
+// No ground truth needed: a correct 3D pose keeps bone LENGTHS stable frame to
+// frame, so the coefficient of variation of each bone length (bone±) is a
+// method-comparable quality proxy — lower is better. We also show per-frame
+// joint velocity (jit) and depth spread (zσ) as method-internal diagnostics.
+const WIN = 45; // ~sliding window of frames
+const _d3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+function makeMetric(bones) { return { bones, hist: bones.map(() => []), prev: null, vsum: 0, vn: 0 }; }
+const mBlue = makeMetric([[11,13],[13,15],[12,14],[14,16],[23,25],[25,27],[24,26],[26,28],[11,23],[12,24]]);
+const mOrange = makeMetric([[2,3],[3,4],[5,6],[6,7],[8,9],[9,10],[11,12],[12,13]]); // MHP limb bones
+function resetMetric(m) { m.hist.forEach((h) => (h.length = 0)); m.prev = null; m.vsum = 0; m.vn = 0; }
+function pushMetric(m, J, label) {
+	let cv = 0, nb = 0;
+	m.bones.forEach((bn, i) => {
+		const a = J[bn[0]], b = J[bn[1]]; if (!a || !b) return;
+		const h = m.hist[i]; h.push(_d3(a, b)); if (h.length > WIN) h.shift();
+		const mean = h.reduce((s, x) => s + x, 0) / h.length;
+		const sd = Math.sqrt(h.reduce((s, x) => s + (x - mean) ** 2, 0) / h.length);
+		cv += mean > 1e-6 ? sd / mean : 0; nb++;
+	});
+	cv = nb ? cv / nb : 0;
+	if (m.prev) { let v = 0, n = 0; for (let i = 0; i < J.length; i++) { if (J[i] && m.prev[i]) { v += _d3(J[i], m.prev[i]); n++; } } if (n) { m.vsum += v / n; m.vn++; } }
+	m.prev = J.map((p) => ({ x: p.x, y: p.y, z: p.z }));
+	const zs = J.map((p) => p.z), zmean = zs.reduce((s, x) => s + x, 0) / zs.length;
+	const zsd = Math.sqrt(zs.reduce((s, x) => s + (x - zmean) ** 2, 0) / zs.length);
+	const jit = m.vn ? m.vsum / m.vn : 0;
+	log(label, `bone±${(cv * 100).toFixed(1)}% · jit ${jit.toFixed(3)} · zσ ${zsd.toFixed(2)}`, cv < 0.05 ? 'ok' : cv < 0.12 ? 'wait' : 'bad');
+}
+
+// One-Euro bank for the 21 orange joints (xyz), smoothed before render + drive
+// so the per-frame ONNX jitter doesn't pass straight through.
+const _mhpFilt = Array.from({ length: 21 * 3 }, () => new OneEuro(1.5, 0.3, 1.0)); // 21 joints × xyz
+function smoothJoints(joints, t) {
+	return joints.map((p, j) => ({ x: _mhpFilt[j*3].filter(p.x, t), y: _mhpFilt[j*3+1].filter(p.y, t), z: _mhpFilt[j*3+2].filter(p.z, t) }));
+}
+function resetJointFilters() { _mhpFilt.forEach((f) => { f.x = null; f.t = null; f.dx = 0; }); }
+
+// --- Camera views + overlay -------------------------------------------------
+// Side view is where depth differences read most clearly; overlay drops the
+// orange skeleton onto the blue one so divergence is obvious.
+const VIEWS = { front: [0.85, 0.9, 4.6], side: [5.0, 0.9, 0.05], top: [0.85, 4.8, 0.06] };
+function setView(name) { const v = VIEWS[name]; if (!v) return; camera.position.set(v[0], v[1], v[2]); controls.target.set(0.85, 0.9, 0); controls.update(); }
+['front', 'side', 'top'].forEach((v) => document.getElementById('v-' + v)?.addEventListener('click', () => setView(v)));
+const overlayEl = document.getElementById('overlay');
+function applyOverlay() {
+	const x = overlayEl?.checked ? 0.1 : 1.6; // align orange onto blue, or back beside it
+	mhpSkel.points.position.x = mhpSkel.segs.position.x = x;
+}
+overlayEl?.addEventListener('change', applyOverlay);
+
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
 const clock = new THREE.Clock();
 (function loop() { requestAnimationFrame(loop); const dt = clock.getDelta(); if (vrmA) vrmA.update(dt); if (vrmB) vrmB.update(dt); controls.update(); renderer.render(scene, camera); if (compCtx) drawComp(); })();
@@ -237,8 +291,12 @@ function preprocess(lm) {
 	let minx = 1, miny = 1, maxx = 0, maxy = 0;
 	for (const p of lm) { if ((p.visibility ?? 1) < 0.3) continue; minx = Math.min(minx, p.x); miny = Math.min(miny, p.y); maxx = Math.max(maxx, p.x); maxy = Math.max(maxy, p.y); }
 	const cx = (minx + maxx) / 2 * vw, cy = (miny + maxy) / 2 * vh;
-	const half = Math.max((maxx - minx) * vw, (maxy - miny) * vh) / 2 * 1.2; // square + pad
-	cropCtx.clearRect(0, 0, 256, 256);
+	const half = Math.max((maxx - minx) * vw, (maxy - miny) * vh) / 2 * 1.25; // square + pad (3DMPPE uses 1.25)
+	// Fill with the ImageNet mean grey so any area outside the frame (when the
+	// crop runs off-edge) normalizes to ~0 instead of black (-mean/std), which
+	// would inject strong negative activations and pollute the heatmap.
+	cropCtx.fillStyle = 'rgb(124,116,104)';
+	cropCtx.fillRect(0, 0, 256, 256);
 	cropCtx.drawImage(video, cx - half, cy - half, half * 2, half * 2, 0, 0, 256, 256);
 	const d = cropCtx.getImageData(0, 0, 256, 256).data;
 	const t = new Float32Array(3 * 256 * 256);
@@ -275,18 +333,22 @@ function decode(out) {
 	return joints;
 }
 
-let busy = false;
+let busy = false, lastLift = 0;
+const LIFT_INTERVAL = 60; // ms — cap the lifter at ~16 Hz so it doesn't waste MediaPipe frames
 async function runLifter(lm) {
-	if (!liftSession || busy) return;
+	const now = performance.now();
+	if (!liftSession || busy || now - lastLift < LIFT_INTERVAL) return;
+	lastLift = now;
 	busy = true;
 	try {
 		const input = preprocess(lm);
 		const out = await liftSession.run({ [liftSession.inputNames[0]]: input });
-		const joints = decode(out[liftSession.outputNames[0]].data);
+		const joints = smoothJoints(decode(out[liftSession.outputNames[0]].data), performance.now());
 		renderSkeleton(mhpSkel, joints, MHP_ROOT, 1.6);
+		pushMetric(mOrange, joints, 'orange');
 		const mw = mhpToMpWorld(joints);
 		driveVRM(vrmB, mw, mw); // B = Mobile Human Pose model
-
+		input.dispose?.(); out[liftSession.outputNames[0]]?.dispose?.();
 	} catch (e) { log('model', `infer error: ${e.message ?? e}`, 'bad'); liftSession = null; }
 	busy = false;
 }
@@ -318,7 +380,7 @@ function frame() {
 		const res = pose.detectForVideo(video, performance.now());
 		const world = res.worldLandmarks?.[0];
 		const lm = res.landmarks?.[0];
-		if (world && lm) { driveVRM(vrmA, world, lm); updateMpSkel(world); } // A = MediaPipe
+		if (world && lm) { driveVRM(vrmA, world, lm); updateMpSkel(world); pushMetric(mBlue, world, 'blue'); } // A = MediaPipe
 		cctx.save(); cctx.clearRect(0, 0, cam2d.width, cam2d.height); cctx.drawImage(video, 0, 0, cam2d.width, cam2d.height);
 		if (lm) draw.drawConnectors(lm, PoseLandmarker.POSE_CONNECTIONS, { color: '#2b5fd9', lineWidth: 2 });
 		cctx.restore();
@@ -341,6 +403,7 @@ async function start() {
 function stop() {
 	running = false;
 	if (vrmA) _banks.delete(vrmA); if (vrmB) _banks.delete(vrmB); // reset One-Euro state
+	resetJointFilters(); resetMetric(mBlue); resetMetric(mOrange); lastLift = 0;
 	if (video.srcObject) { video.srcObject.getTracks().forEach((t) => t.stop()); video.srcObject = null; }
 	if (video.src) { video.pause(); video.removeAttribute('src'); video.load(); }
 	log('tracking', 'stopped', 'wait');
