@@ -64,23 +64,90 @@ async function loadOne(x) {
 }
 async function loadVRMs() { vrmA = await loadOne(0.1); vrmB = await loadOne(1.6); applyView(); }
 
-const _e = new THREE.Euler(), _q = new THREE.Quaternion();
+const _e = new THREE.Euler(), _ident = new THREE.Quaternion();
+const clamp = Kalidokit?.Utils?.clamp ?? ((v, a, b) => Math.max(a, Math.min(b, v)));
+
+// One-Euro filter bank, ported from the v1 app (mocap.js). A fixed per-frame
+// slerp couples smoothing to the (variable) frame rate and forces one
+// jitter/lag tradeoff at all speeds; One-Euro kills rest jitter via minCutoff
+// yet opens the cutoff during fast motion (beta) so quick moves aren't lagged.
+class OneEuro {
+	constructor(minCutoff = 1.7, beta = 0.25, dcutoff = 1.0) {
+		this.minCutoff = minCutoff; this.beta = beta; this.dcutoff = dcutoff;
+		this.x = null; this.dx = 0; this.t = null;
+	}
+	_a(c, dt) { const tau = 1 / (2 * Math.PI * c); return 1 / (1 + tau / dt); }
+	filter(x, t) {
+		if (this.x === null) { this.x = x; this.t = t; return x; }
+		const dt = Math.max(1e-3, (t - this.t) / 1000); this.t = t;
+		const dx = (x - this.x) / dt;
+		const ad = this._a(this.dcutoff, dt);
+		this.dx = ad * dx + (1 - ad) * this.dx;
+		const a = this._a(this.minCutoff + this.beta * Math.abs(this.dx), dt);
+		this.x = a * x + (1 - a) * this.x;
+		return this.x;
+	}
+}
+// Per-avatar filter bank so A (live) and B (MHP) don't share smoothing state.
+const _banks = new WeakMap();
+function smoothCh(vrm, key, val) {
+	let bank = _banks.get(vrm);
+	if (!bank) { bank = new Map(); _banks.set(vrm, bank); }
+	let f = bank.get(key);
+	if (!f) { f = new OneEuro(); bank.set(key, f); }
+	return f.filter(val, performance.now());
+}
 function rigRot(vrm, name, rot, damp = 1) {
 	const node = vrm?.humanoid?.getNormalizedBoneNode(name);
 	if (!node || !rot) return;
-	_e.set((rot.x ?? 0) * damp, (rot.y ?? 0) * damp, (rot.z ?? 0) * damp, rot.rotationOrder || 'XYZ');
-	node.quaternion.slerp(_q.setFromEuler(_e), 0.4);
+	const x = smoothCh(vrm, name + 'x', (rot.x ?? 0) * damp);
+	const y = smoothCh(vrm, name + 'y', (rot.y ?? 0) * damp);
+	const z = smoothCh(vrm, name + 'z', (rot.z ?? 0) * damp);
+	_e.set(x, y, z, rot.rotationOrder || 'XYZ');
+	node.quaternion.setFromEuler(_e);
+}
+function easeBone(vrm, name, amt = 0.12) {
+	const n = vrm?.humanoid?.getNormalizedBoneNode(name);
+	if (n) n.quaternion.slerp(_ident, amt);
+}
+// Head orientation from pose landmarks (image-plane signals): ear-line tilt =
+// roll, nose-between-ears = yaw, nose-below-ears = pitch. For avatar B the ear
+// landmarks (7/8) are unmapped (visibility 0) so the guard disables this.
+const HEAD = { yaw: -0.8, pitch: 0.9, roll: -1.0, pitchBias: 0.18 };
+function rigHeadFromPose(vrm, lm) {
+	const nose = lm[0], lEar = lm[7], rEar = lm[8];
+	if (!nose || !lEar || !rEar) return;
+	if ((lEar.visibility ?? 1) < 0.4 || (rEar.visibility ?? 1) < 0.4) return;
+	const dx = rEar.x - lEar.x, dy = rEar.y - lEar.y, w = Math.hypot(dx, dy) || 1e-3;
+	const roll = Math.atan2(dy, dx);
+	const t = ((nose.x - lEar.x) * dx + (nose.y - lEar.y) * dy) / (w * w);
+	const yaw = (t - 0.5) * 2;
+	const pitch = (nose.y - (lEar.y + rEar.y) / 2) / w - HEAD.pitchBias;
+	rigRot(vrm, 'neck', {
+		x: clamp(pitch * HEAD.pitch, -0.6, 0.6),
+		y: clamp(yaw * HEAD.yaw, -0.7, 0.7),
+		z: clamp(roll * HEAD.roll, -0.5, 0.5),
+	}, 0.8);
 }
 function driveVRM(vrm, world, lm) {
 	if (!vrm || !Kalidokit) return;
 	const rp = Kalidokit.Pose.solve(world, lm, { runtime: 'mediapipe', video });
 	if (!rp) return;
-	rigRot(vrm, 'hips', rp.Hips.rotation, 0.7);
+	const vis = (i) => lm?.[i]?.visibility ?? 1;   // MHP world passes 1 -> gates always open
+	const G = 1.15;                                // Kalidokit under-reaches; amplify limbs
+	rigRot(vrm, 'hips', rp.Hips.rotation, 0.25);   // hips is the root — damp hard (v1 value)
 	rigRot(vrm, 'spine', rp.Spine, 0.45); rigRot(vrm, 'chest', rp.Spine, 0.3);
-	rigRot(vrm, 'rightUpperArm', rp.RightUpperArm); rigRot(vrm, 'rightLowerArm', rp.RightLowerArm);
-	rigRot(vrm, 'leftUpperArm', rp.LeftUpperArm); rigRot(vrm, 'leftLowerArm', rp.LeftLowerArm);
-	rigRot(vrm, 'leftUpperLeg', rp.LeftUpperLeg); rigRot(vrm, 'leftLowerLeg', rp.LeftLowerLeg);
-	rigRot(vrm, 'rightUpperLeg', rp.RightUpperLeg); rigRot(vrm, 'rightLowerLeg', rp.RightLowerLeg);
+	// Per-limb confidence gating: drive a limb only when its landmarks are
+	// clearly visible, else ease it to rest so occluded limbs don't wobble.
+	if ((vis(14) + vis(16)) / 2 > 0.5) { rigRot(vrm, 'rightUpperArm', rp.RightUpperArm, G); rigRot(vrm, 'rightLowerArm', rp.RightLowerArm, G); }
+	else { easeBone(vrm, 'rightUpperArm'); easeBone(vrm, 'rightLowerArm'); }
+	if ((vis(13) + vis(15)) / 2 > 0.5) { rigRot(vrm, 'leftUpperArm', rp.LeftUpperArm, G); rigRot(vrm, 'leftLowerArm', rp.LeftLowerArm, G); }
+	else { easeBone(vrm, 'leftUpperArm'); easeBone(vrm, 'leftLowerArm'); }
+	if ((vis(25) + vis(27)) / 2 > 0.4) { rigRot(vrm, 'leftUpperLeg', rp.LeftUpperLeg, G); rigRot(vrm, 'leftLowerLeg', rp.LeftLowerLeg, G); }
+	else { easeBone(vrm, 'leftUpperLeg'); easeBone(vrm, 'leftLowerLeg'); }
+	if ((vis(26) + vis(28)) / 2 > 0.4) { rigRot(vrm, 'rightUpperLeg', rp.RightUpperLeg, G); rigRot(vrm, 'rightLowerLeg', rp.RightLowerLeg, G); }
+	else { easeBone(vrm, 'rightUpperLeg'); easeBone(vrm, 'rightLowerLeg'); }
+	rigHeadFromPose(vrm, lm);                      // head from pose (no-op for avatar B)
 }
 // MHP 21 joints -> MediaPipe-world-format (metric-ish, pelvis-centred) so the
 // same Kalidokit solver can drive avatar B from the new model's 3D.
@@ -176,7 +243,15 @@ function preprocess(lm) {
 	const d = cropCtx.getImageData(0, 0, 256, 256).data;
 	const t = new Float32Array(3 * 256 * 256);
 	const plane = 256 * 256;
-	for (let i = 0; i < plane; i++) { t[i] = d[i * 4]; t[plane + i] = d[i * 4 + 1]; t[2 * plane + i] = d[i * 4 + 2]; }
+	// 3DMPPE / MobileHumanPose was trained with ToTensor (0..1) + ImageNet
+	// normalization. Feeding raw 0..255 is ~250x the trained input scale and
+	// saturates the network -> the "wobble". Normalize per channel (RGB).
+	const MEAN = [0.485, 0.456, 0.406], STD = [0.229, 0.224, 0.225];
+	for (let i = 0; i < plane; i++) {
+		t[i]             = (d[i * 4]     / 255 - MEAN[0]) / STD[0];
+		t[plane + i]     = (d[i * 4 + 1] / 255 - MEAN[1]) / STD[1];
+		t[2 * plane + i] = (d[i * 4 + 2] / 255 - MEAN[2]) / STD[2];
+	}
 	return new ort.Tensor('float32', t, [1, 3, 256, 256]);
 }
 
@@ -265,6 +340,7 @@ async function start() {
 }
 function stop() {
 	running = false;
+	if (vrmA) _banks.delete(vrmA); if (vrmB) _banks.delete(vrmB); // reset One-Euro state
 	if (video.srcObject) { video.srcObject.getTracks().forEach((t) => t.stop()); video.srcObject = null; }
 	if (video.src) { video.pause(); video.removeAttribute('src'); video.load(); }
 	log('tracking', 'stopped', 'wait');

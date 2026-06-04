@@ -21,7 +21,9 @@ auto-loads on Start.
 
 ## How it works (pipeline)
 1. MediaPipe gives 2D landmarks → a person bounding box.
-2. Crop + resize the person to **256×256**, raw 0–255 RGB, CHW (no normalization).
+2. Crop + resize the person to **256×256**, RGB, CHW, **ImageNet-normalized**
+   (`ToTensor` 0–1 then mean `[0.485,0.456,0.406]` / std `[0.229,0.224,0.225]`) —
+   the scale the 3DMPPE net was trained on.
 3. ORT runs the model → `[1,672,32,32]` 3D heatmap (21 joints × 32 depth × 32×32).
 4. **Soft-argmax** decode → 21 3D joints; rendered as the orange skeleton.
 
